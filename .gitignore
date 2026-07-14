@@ -44,3 +44,7 @@ Thumbs.db
 
 # Local Netlify folder
 .netlify
+
+# Build artifacts
+/release
+/dist

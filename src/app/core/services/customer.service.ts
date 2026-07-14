@@ -1,16 +1,33 @@
 import { Injectable, signal, effect } from '@angular/core';
 import { Customer } from '../models/app.models';
+import { db, isFirebaseConfigured } from '../configs/firebase.config';
+import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 @Injectable({
     providedIn: 'root'
 })
 export class CustomerService {
-    readonly customers = signal<Customer[]>(this.loadCustomers());
+    readonly customers = signal<Customer[]>([]);
+    private unsubscribeFirestore?: () => void;
 
     constructor() {
-        effect(() => {
-            this.saveCustomers(this.customers());
-        });
+        if (isFirebaseConfigured && db) {
+            const customersRef = collection(db, 'customers');
+            this.unsubscribeFirestore = onSnapshot(customersRef, (snapshot) => {
+                const list: Customer[] = [];
+                snapshot.forEach((docVal) => {
+                    list.push(docVal.data() as Customer);
+                });
+                this.customers.set(list);
+            }, (error) => {
+                console.error("Firestore customer read error:", error);
+            });
+        } else {
+            this.customers.set(this.loadCustomers());
+            effect(() => {
+                this.saveCustomers(this.customers());
+            });
+        }
     }
 
     getCustomers() {
@@ -22,13 +39,23 @@ export class CustomerService {
     }
 
     addCustomer(customer: Customer): void {
-        this.customers.update(list => [...list, customer]);
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'customers', customer.mobile);
+            setDoc(docRef, customer).catch(err => console.error("Error adding customer:", err));
+        } else {
+            this.customers.update(list => [...list, customer]);
+        }
     }
 
     updateCustomer(mobile: string, updates: Partial<Customer>): void {
-        this.customers.update(list =>
-            list.map(c => c.mobile === mobile ? { ...c, ...updates } : c)
-        );
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'customers', mobile);
+            updateDoc(docRef, updates).catch(err => console.error("Error updating customer:", err));
+        } else {
+            this.customers.update(list =>
+                list.map(c => c.mobile === mobile ? { ...c, ...updates } : c)
+            );
+        }
     }
 
     private loadCustomers(): Customer[] {

@@ -1,11 +1,14 @@
 import { Injectable, signal, effect, computed } from '@angular/core';
 import { JobCard, JobStatus } from '../models/app.models';
+import { db, isFirebaseConfigured } from '../configs/firebase.config';
+import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 @Injectable({
     providedIn: 'root'
 })
 export class JobCardService {
-    readonly jobCards = signal<JobCard[]>(this.loadJobCards());
+    readonly jobCards = signal<JobCard[]>([]);
+    private unsubscribeFirestore?: () => void;
 
     readonly activeJobs = computed(() =>
         this.jobCards().filter(j => j.status !== 'DELIVERED')
@@ -17,9 +20,33 @@ export class JobCardService {
     });
 
     constructor() {
-        effect(() => {
-            this.saveJobCards(this.jobCards());
-        });
+        if (isFirebaseConfigured && db) {
+            const jobCardsRef = collection(db, 'job-cards');
+            this.unsubscribeFirestore = onSnapshot(jobCardsRef, (snapshot) => {
+                const list: JobCard[] = [];
+                snapshot.forEach((docVal) => {
+                    const j = docVal.data() as JobCard;
+                    if (j.services && j.services.length > 0 && typeof j.services[0] === 'string') {
+                        list.push({
+                            ...j,
+                            services: (j.services as any as string[]).map(s => ({ description: s, cost: 0 }))
+                        });
+                    } else {
+                        list.push(j);
+                    }
+                });
+                // Sort by createdAt descending (newest first)
+                list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                this.jobCards.set(list);
+            }, (error) => {
+                console.error("Firestore job cards read error:", error);
+            });
+        } else {
+            this.jobCards.set(this.loadJobCards());
+            effect(() => {
+                this.saveJobCards(this.jobCards());
+            });
+        }
     }
 
     createJobCard(job: Omit<JobCard, 'id' | 'createdAt' | 'updatedAt' | 'totalAmount'>): void {
@@ -31,19 +58,38 @@ export class JobCardService {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
-        this.jobCards.update(list => [newJob, ...list]);
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'job-cards', newJob.id);
+            setDoc(docRef, newJob).catch(err => console.error("Error creating job card:", err));
+        } else {
+            this.jobCards.update(list => [newJob, ...list]);
+        }
     }
 
     updateStatus(id: string, status: JobStatus): void {
-        this.jobCards.update(list =>
-            list.map(j => j.id === id ? { ...j, status, updatedAt: new Date().toISOString() } : j)
-        );
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'job-cards', id);
+            updateDoc(docRef, { status, updatedAt: new Date().toISOString() }).catch(err => console.error("Error updating status:", err));
+        } else {
+            this.jobCards.update(list =>
+                list.map(j => j.id === id ? { ...j, status, updatedAt: new Date().toISOString() } : j)
+            );
+        }
     }
 
     updateJob(id: string, updates: Partial<JobCard>): void {
-        this.jobCards.update(list =>
-            list.map(j => j.id === id ? { ...j, ...updates, updatedAt: new Date().toISOString() } : j)
-        );
+        const timestamped = {
+            ...updates,
+            updatedAt: new Date().toISOString()
+        };
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'job-cards', id);
+            updateDoc(docRef, timestamped).catch(err => console.error("Error updating job card:", err));
+        } else {
+            this.jobCards.update(list =>
+                list.map(j => j.id === id ? { ...j, ...timestamped } : j)
+            );
+        }
     }
 
     getJobCard(id: string): JobCard | undefined {

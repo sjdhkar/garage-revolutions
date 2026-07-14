@@ -1,36 +1,67 @@
 import { Injectable, signal, effect, computed } from '@angular/core';
 import { InventoryItem } from '../models/app.models';
+import { db, isFirebaseConfigured } from '../configs/firebase.config';
+import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 @Injectable({
     providedIn: 'root'
 })
 export class InventoryService {
-    readonly inventory = signal<InventoryItem[]>(this.loadInventory());
+    readonly inventory = signal<InventoryItem[]>([]);
+    private unsubscribeFirestore?: () => void;
 
     readonly lowStockItems = computed(() =>
         this.inventory().filter(item => item.quantity <= item.minStock)
     );
 
     constructor() {
-        effect(() => {
-            this.saveInventory(this.inventory());
-        });
+        if (isFirebaseConfigured && db) {
+            const inventoryRef = collection(db, 'inventory');
+            this.unsubscribeFirestore = onSnapshot(inventoryRef, (snapshot) => {
+                const list: InventoryItem[] = [];
+                snapshot.forEach((docVal) => {
+                    list.push(docVal.data() as InventoryItem);
+                });
+                this.inventory.set(list);
+            }, (error) => {
+                console.error("Firestore inventory read error:", error);
+            });
+        } else {
+            this.inventory.set(this.loadInventory());
+            effect(() => {
+                this.saveInventory(this.inventory());
+            });
+        }
     }
 
     addItem(item: InventoryItem): void {
-        this.inventory.update(list => [...list, item]);
+        if (isFirebaseConfigured && db) {
+            const docRef = doc(db, 'inventory', item.id);
+            setDoc(docRef, item).catch(err => console.error("Error adding inventory item:", err));
+        } else {
+            this.inventory.update(list => [...list, item]);
+        }
     }
 
     updateStock(itemId: string, quantityChange: number): void {
-        this.inventory.update(list =>
-            list.map(item => {
-                if (item.id === itemId) {
-                    const newQty = item.quantity + quantityChange;
-                    return { ...item, quantity: newQty >= 0 ? newQty : 0 };
-                }
-                return item;
-            })
-        );
+        if (isFirebaseConfigured && db) {
+            const item = this.getItem(itemId);
+            if (item) {
+                const newQty = item.quantity + quantityChange;
+                const docRef = doc(db, 'inventory', itemId);
+                updateDoc(docRef, { quantity: newQty >= 0 ? newQty : 0 }).catch(err => console.error("Error updating stock:", err));
+            }
+        } else {
+            this.inventory.update(list =>
+                list.map(item => {
+                    if (item.id === itemId) {
+                        const newQty = item.quantity + quantityChange;
+                        return { ...item, quantity: newQty >= 0 ? newQty : 0 };
+                    }
+                    return item;
+                })
+            );
+        }
     }
 
     getItem(itemId: string): InventoryItem | undefined {

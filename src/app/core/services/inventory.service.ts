@@ -9,12 +9,17 @@ import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firesto
 export class InventoryService {
     readonly inventory = signal<InventoryItem[]>([]);
     private unsubscribeFirestore?: () => void;
+    private isUsingFallback = false;
 
     readonly lowStockItems = computed(() =>
         this.inventory().filter(item => item.quantity <= item.minStock)
     );
 
     constructor() {
+        this.initializeData();
+    }
+
+    private initializeData() {
         if (isFirebaseConfigured && db) {
             const inventoryRef = collection(db, 'inventory');
             this.unsubscribeFirestore = onSnapshot(inventoryRef, (snapshot) => {
@@ -23,33 +28,65 @@ export class InventoryService {
                     list.push(docVal.data() as InventoryItem);
                 });
                 this.inventory.set(list);
+                this.isUsingFallback = false;
             }, (error) => {
-                console.error("Firestore inventory read error:", error);
+                console.error("Firestore inventory read error (falling back to LocalStorage):", error);
+                this.activateFallback();
             });
         } else {
-            this.inventory.set(this.loadInventory());
+            this.activateFallback();
+        }
+    }
+
+    private activateFallback() {
+        this.isUsingFallback = true;
+        this.inventory.set(this.loadInventory());
+        try {
             effect(() => {
-                this.saveInventory(this.inventory());
+                if (this.isUsingFallback) {
+                    this.saveInventory(this.inventory());
+                }
             });
+        } catch (e) {
+            // Safe catch if called outside injection context
         }
     }
 
     addItem(item: InventoryItem): void {
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'inventory', item.id);
-            setDoc(docRef, item).catch(err => console.error("Error adding inventory item:", err));
+            setDoc(docRef, item).catch(err => {
+                console.error("Error adding inventory item (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.inventory.update(list => [...list, item]);
+                this.saveInventory(this.inventory());
+            });
         } else {
             this.inventory.update(list => [...list, item]);
+            if (this.isUsingFallback) this.saveInventory(this.inventory());
         }
     }
 
     updateStock(itemId: string, quantityChange: number): void {
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const item = this.getItem(itemId);
             if (item) {
                 const newQty = item.quantity + quantityChange;
                 const docRef = doc(db, 'inventory', itemId);
-                updateDoc(docRef, { quantity: newQty >= 0 ? newQty : 0 }).catch(err => console.error("Error updating stock:", err));
+                updateDoc(docRef, { quantity: newQty >= 0 ? newQty : 0 }).catch(err => {
+                    console.error("Error updating stock (falling back to LocalStorage):", err);
+                    this.isUsingFallback = true;
+                    this.inventory.update(list =>
+                        list.map(i => {
+                            if (i.id === itemId) {
+                                const newQ = i.quantity + quantityChange;
+                                return { ...i, quantity: newQ >= 0 ? newQ : 0 };
+                            }
+                            return i;
+                        })
+                    );
+                    this.saveInventory(this.inventory());
+                });
             }
         } else {
             this.inventory.update(list =>
@@ -61,6 +98,7 @@ export class InventoryService {
                     return item;
                 })
             );
+            if (this.isUsingFallback) this.saveInventory(this.inventory());
         }
     }
 

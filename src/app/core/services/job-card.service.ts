@@ -9,6 +9,7 @@ import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firesto
 export class JobCardService {
     readonly jobCards = signal<JobCard[]>([]);
     private unsubscribeFirestore?: () => void;
+    private isUsingFallback = false;
 
     readonly activeJobs = computed(() =>
         this.jobCards().filter(j => j.status !== 'DELIVERED')
@@ -20,6 +21,10 @@ export class JobCardService {
     });
 
     constructor() {
+        this.initializeData();
+    }
+
+    private initializeData() {
         if (isFirebaseConfigured && db) {
             const jobCardsRef = collection(db, 'job-cards');
             this.unsubscribeFirestore = onSnapshot(jobCardsRef, (snapshot) => {
@@ -38,14 +43,27 @@ export class JobCardService {
                 // Sort by createdAt descending (newest first)
                 list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                 this.jobCards.set(list);
+                this.isUsingFallback = false;
             }, (error) => {
-                console.error("Firestore job cards read error:", error);
+                console.error("Firestore job cards read error (falling back to LocalStorage):", error);
+                this.activateFallback();
             });
         } else {
-            this.jobCards.set(this.loadJobCards());
+            this.activateFallback();
+        }
+    }
+
+    private activateFallback() {
+        this.isUsingFallback = true;
+        this.jobCards.set(this.loadJobCards());
+        try {
             effect(() => {
-                this.saveJobCards(this.jobCards());
+                if (this.isUsingFallback) {
+                    this.saveJobCards(this.jobCards());
+                }
             });
+        } catch (e) {
+            // Safe catch if called outside injection context
         }
     }
 
@@ -58,22 +76,36 @@ export class JobCardService {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'job-cards', newJob.id);
-            setDoc(docRef, newJob).catch(err => console.error("Error creating job card:", err));
+            setDoc(docRef, newJob).catch(err => {
+                console.error("Error creating job card (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.jobCards.update(list => [newJob, ...list]);
+                this.saveJobCards(this.jobCards());
+            });
         } else {
             this.jobCards.update(list => [newJob, ...list]);
+            if (this.isUsingFallback) this.saveJobCards(this.jobCards());
         }
     }
 
     updateStatus(id: string, status: JobStatus): void {
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'job-cards', id);
-            updateDoc(docRef, { status, updatedAt: new Date().toISOString() }).catch(err => console.error("Error updating status:", err));
+            updateDoc(docRef, { status, updatedAt: new Date().toISOString() }).catch(err => {
+                console.error("Error updating status (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.jobCards.update(list =>
+                    list.map(j => j.id === id ? { ...j, status, updatedAt: new Date().toISOString() } : j)
+                );
+                this.saveJobCards(this.jobCards());
+            });
         } else {
             this.jobCards.update(list =>
                 list.map(j => j.id === id ? { ...j, status, updatedAt: new Date().toISOString() } : j)
             );
+            if (this.isUsingFallback) this.saveJobCards(this.jobCards());
         }
     }
 
@@ -82,13 +114,21 @@ export class JobCardService {
             ...updates,
             updatedAt: new Date().toISOString()
         };
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'job-cards', id);
-            updateDoc(docRef, timestamped).catch(err => console.error("Error updating job card:", err));
+            updateDoc(docRef, timestamped).catch(err => {
+                console.error("Error updating job card (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.jobCards.update(list =>
+                    list.map(j => j.id === id ? { ...j, ...timestamped } : j)
+                );
+                this.saveJobCards(this.jobCards());
+            });
         } else {
             this.jobCards.update(list =>
                 list.map(j => j.id === id ? { ...j, ...timestamped } : j)
             );
+            if (this.isUsingFallback) this.saveJobCards(this.jobCards());
         }
     }
 

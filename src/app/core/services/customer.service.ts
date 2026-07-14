@@ -9,8 +9,13 @@ import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firesto
 export class CustomerService {
     readonly customers = signal<Customer[]>([]);
     private unsubscribeFirestore?: () => void;
+    private isUsingFallback = false;
 
     constructor() {
+        this.initializeData();
+    }
+
+    private initializeData() {
         if (isFirebaseConfigured && db) {
             const customersRef = collection(db, 'customers');
             this.unsubscribeFirestore = onSnapshot(customersRef, (snapshot) => {
@@ -19,14 +24,27 @@ export class CustomerService {
                     list.push(docVal.data() as Customer);
                 });
                 this.customers.set(list);
+                this.isUsingFallback = false;
             }, (error) => {
-                console.error("Firestore customer read error:", error);
+                console.error("Firestore customer read error (falling back to LocalStorage):", error);
+                this.activateFallback();
             });
         } else {
-            this.customers.set(this.loadCustomers());
+            this.activateFallback();
+        }
+    }
+
+    private activateFallback() {
+        this.isUsingFallback = true;
+        this.customers.set(this.loadCustomers());
+        try {
             effect(() => {
-                this.saveCustomers(this.customers());
+                if (this.isUsingFallback) {
+                    this.saveCustomers(this.customers());
+                }
             });
+        } catch (e) {
+            // Safe catch if called outside injection context
         }
     }
 
@@ -39,22 +57,36 @@ export class CustomerService {
     }
 
     addCustomer(customer: Customer): void {
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'customers', customer.mobile);
-            setDoc(docRef, customer).catch(err => console.error("Error adding customer:", err));
+            setDoc(docRef, customer).catch(err => {
+                console.error("Error adding customer (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.customers.update(list => [...list, customer]);
+                this.saveCustomers(this.customers());
+            });
         } else {
             this.customers.update(list => [...list, customer]);
+            if (this.isUsingFallback) this.saveCustomers(this.customers());
         }
     }
 
     updateCustomer(mobile: string, updates: Partial<Customer>): void {
-        if (isFirebaseConfigured && db) {
+        if (isFirebaseConfigured && db && !this.isUsingFallback) {
             const docRef = doc(db, 'customers', mobile);
-            updateDoc(docRef, updates).catch(err => console.error("Error updating customer:", err));
+            updateDoc(docRef, updates).catch(err => {
+                console.error("Error updating customer (falling back to LocalStorage):", err);
+                this.isUsingFallback = true;
+                this.customers.update(list =>
+                    list.map(c => c.mobile === mobile ? { ...c, ...updates } : c)
+                );
+                this.saveCustomers(this.customers());
+            });
         } else {
             this.customers.update(list =>
                 list.map(c => c.mobile === mobile ? { ...c, ...updates } : c)
             );
+            if (this.isUsingFallback) this.saveCustomers(this.customers());
         }
     }
 

@@ -18,8 +18,8 @@ vi.mock('firebase/auth', () => ({
         return () => { authStateCallback = null; };
     },
     signInWithEmailAndPassword: vi.fn(),
-    createUserWithEmailAndPassword: vi.fn(async () => {
-        const user = { uid: 'new-user-uid', email: 'new@example.com', emailVerified: false, displayName: null, photoURL: null };
+    createUserWithEmailAndPassword: vi.fn(async (_auth: any, email: string) => {
+        const user = { uid: 'new-user-uid', email, emailVerified: false, displayName: null, photoURL: null };
         // Simulate the real SDK: the auth-state listener can fire in the same
         // microtask window as this promise resolving, i.e. before our own
         // `await createUserWithEmailAndPassword(...)` line even returns control
@@ -84,7 +84,7 @@ describe('AuthService registration race', () => {
         expect(profile).toBeTruthy();
         expect(profile?.id).toBe('new-user-uid');
         expect(profile?.name).toBe('New User');
-        expect(profile?.role).toBe('owner');
+        expect(profile?.role).toBe('technician');
         expect(profile?.status).toBe('active');
     });
 
@@ -105,12 +105,20 @@ describe('AuthService registration race', () => {
         expect(deleteInvite).toHaveBeenCalledWith('new@example.com');
     });
 
-    it('preserves the default owner bootstrap when no invite matches the registering email', async () => {
+    it('defaults an uninvited self-registration to technician, never owner or admin', async () => {
         const service = TestBed.inject(AuthService);
         await service.registerWithEmail('New User', 'new@example.com', 'password123');
 
         const profile = service.currentUser();
-        expect(profile?.role).toBe('owner');
+        expect(profile?.role).toBe('technician');
         expect(deleteInvite).not.toHaveBeenCalled();
+    });
+
+    it('always assigns owner to the hardcoded owner email, even with no invite and regardless of case', async () => {
+        const service = TestBed.inject(AuthService);
+        await service.registerWithEmail('Srujan Dharkar', 'SJDHKAR@gmail.com', 'password123');
+
+        const profile = service.currentUser();
+        expect(profile?.role).toBe('owner');
     });
 });

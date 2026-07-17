@@ -25,7 +25,10 @@
  * GitHub Actions deploy job), and it does not touch GitHub Pages hosting.
  */
 
-const admin = require('firebase-admin');
+const { initializeApp, applicationDefault } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
+const { getAuth } = require('firebase-admin/auth');
 
 const PROJECT_ID = 'garage-revolutions';
 const STORAGE_BUCKET = 'garage-revolutions.firebasestorage.app';
@@ -57,14 +60,15 @@ async function main() {
         process.exit(1);
     }
 
-    admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
+    const app = initializeApp({
+        credential: applicationDefault(),
         projectId: PROJECT_ID,
         storageBucket: STORAGE_BUCKET,
     });
 
-    const db = admin.firestore();
-    const bucket = admin.storage().bucket();
+    const db = getFirestore(app);
+    const bucket = getStorage(app).bucket();
+    const auth = getAuth(app);
 
     console.log(`Wiping Firestore data for project "${PROJECT_ID}"...`);
     for (const collectionName of TOP_LEVEL_COLLECTIONS) {
@@ -77,12 +81,21 @@ async function main() {
     console.log('  ✓ garages/main');
 
     console.log('Wiping uploaded branding files in Storage (garages/ prefix)...');
-    await bucket.deleteFiles({ prefix: 'garages/' });
-    console.log('  ✓ Storage files under garages/');
+    try {
+        await bucket.deleteFiles({ prefix: 'garages/' });
+        console.log('  ✓ Storage files under garages/');
+    } catch (err) {
+        if (err.code === 404) {
+            console.log('  (Storage bucket does not exist yet — nothing to wipe. Enable Storage in the');
+            console.log('   Firebase Console first if you plan to use logo/QR uploads.)');
+        } else {
+            throw err;
+        }
+    }
 
     if (process.env.WIPE_AUTH_USERS === 'true') {
         console.log('WIPE_AUTH_USERS=true — deleting every Firebase Auth user...');
-        await deleteAllAuthUsers();
+        await deleteAllAuthUsers(auth);
         console.log('  ✓ Firebase Auth users deleted. The very next registration becomes the new owner.');
     } else {
         console.log('Skipping Firebase Auth users (set WIPE_AUTH_USERS=true to also delete them).');
@@ -106,13 +119,13 @@ async function deleteCollectionRecursively(db, collectionRef, batchSize = 200) {
     await deleteCollectionRecursively(db, collectionRef, batchSize);
 }
 
-async function deleteAllAuthUsers() {
+async function deleteAllAuthUsers(auth) {
     let pageToken = undefined;
     do {
-        const result = await admin.auth().listUsers(1000, pageToken);
+        const result = await auth.listUsers(1000, pageToken);
         const uids = result.users.map(u => u.uid);
         if (uids.length > 0) {
-            await admin.auth().deleteUsers(uids);
+            await auth.deleteUsers(uids);
         }
         pageToken = result.pageToken;
     } while (pageToken);

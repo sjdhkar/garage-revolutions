@@ -18,6 +18,15 @@ import { GarageService } from './garage.service';
 import { TeamService } from './team.service';
 import { DEFAULT_GARAGE_ID } from '../configs/garage.constants';
 
+// The one hardcoded founding owner for this single-tenant deployment — always
+// lands as 'owner' regardless of registration order, so re-wiping test data
+// (or someone else registering first by accident) can never strand the real
+// owner without access. Every other self-registration (no matching invite)
+// defaults to the lowest-privilege role instead of silently becoming a second
+// owner — 'admin' is reserved for an explicit invite/promotion, never a
+// self-serve default.
+const HARDCODED_OWNER_EMAIL = 'sjdhkar@gmail.com';
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
     private router = inject(Router);
@@ -173,17 +182,28 @@ export class AuthService {
         provider: 'email' | 'google'
     ): Promise<AppUser> {
         const now = new Date().toISOString();
-        // A pending invite (owner pre-registering a staff member's email + role)
-        // takes priority over the default owner bootstrap — but the very first
-        // registration ever, with no invite, still needs to land as 'owner'.
-        const invite = firebaseUser.email ? await this.teamService.findInviteByEmail(firebaseUser.email) : null;
+        const email = firebaseUser.email ?? '';
+        const invite = email ? await this.teamService.findInviteByEmail(email) : null;
+
+        // Precedence: the hardcoded owner email always wins > a matching staff
+        // invite's assigned role > technician (safe default for anyone who
+        // self-registers without being invited — never owner, never admin).
+        let role: AppUser['role'];
+        if (email.toLowerCase() === HARDCODED_OWNER_EMAIL) {
+            role = 'owner';
+        } else if (invite) {
+            role = invite.role;
+        } else {
+            role = 'technician';
+        }
+
         const profile: AppUser = {
             id: firebaseUser.uid,
             name,
-            email: firebaseUser.email ?? '',
+            email,
             provider,
             garageId: DEFAULT_GARAGE_ID,
-            role: invite?.role ?? 'owner',
+            role,
             status: 'active',
             emailVerified: firebaseUser.emailVerified,
             createdAt: now,

@@ -8,7 +8,7 @@
   <header class="app-header d-print-none">
     <div class="header-brand">
       <img src="logo.png" alt="Logo" class="header-logo" />
-      <span class="header-title">Revolution Moto</span>
+      <span class="header-title">{{ garageService.garage()?.name || 'Garage CRM' }}</span>
     </div>
     <div class="header-user">
       <span class="user-role-badge">{{ authService.currentUser()?.role | titlecase }}</span>
@@ -20,6 +20,7 @@
         </div>
       }
       <span class="user-name">{{ authService.currentUser()?.name }}</span>
+      <a routerLink="/settings" class="btn-settings" title="Settings"><i class="bi bi-gear"></i></a>
       <button class="btn-logout" (click)="logout()">Sign out</button>
     </div>
   </header>
@@ -30,3 +31,4 @@
   <!-- Auth pages (no shell) -->
   <router-outlet></router-outlet>
 }
+<app-toast-container></app-toast-container>

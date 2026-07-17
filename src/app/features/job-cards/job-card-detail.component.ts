@@ -1,4 +1,4 @@
-import { Component, inject, computed, signal, OnInit } from '@angular/core';
+import { Component, inject, computed, signal, effect, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -6,12 +6,21 @@ import { JobCardService } from '../../core/services/job-card.service';
 import { CustomerService } from '../../core/services/customer.service';
 import { InventoryService } from '../../core/services/inventory.service';
 import { WhatsappService } from '../../core/services/whatsapp.service';
-import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
+import { GarageService } from '../../core/services/garage.service';
+import { ServiceCatalogService } from '../../core/services/service-catalog.service';
+import { AuthService } from '../../core/services/auth.service';
+import { TeamService } from '../../core/services/team.service';
+import { InvoiceService } from '../../core/services/invoice.service';
+import { JobCard, JobStatus, JobCardPart, StatusHistoryEntry } from '../../core/models/app.models';
+import { PaymentMode, PaymentRecord } from '../../core/models/billing.model';
+import { calculatePartsTotal, calculateServicesTotal } from '../../core/utils/billing-calculations';
+import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
+import { ToastService } from '../../shared/services/toast.service';
 
 @Component({
   selector: 'app-job-card-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, StatusBadgeComponent],
   template: `
     <div *ngIf="job()" class="container-fluid">
       <div class="row mb-3 d-print-none">
@@ -39,18 +48,18 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
       <!-- Print-Only Header -->
       <div class="d-none d-print-block text-center mb-4 pb-2 border-bottom border-dark">
         <div class="mb-3">
-          <img src="logo.png" alt="Revolution Moto Garage" style="max-height: 100px; width: auto;">
+          <img src="logo.png" [alt]="garageService.garage()?.name" style="max-height: 100px; width: auto;">
         </div>
         <div class="d-flex justify-content-between align-items-center mt-3">
           <div class="text-start">
-             <p class="mb-1"><strong>WhatsApp:</strong> 9209018909</p>
-             <p class="mb-0"><strong>Address:</strong> Beside Hyundai Showroom, Near Kothari Honda,<br>Khamgaon Road, Buldana</p>
+             <p class="mb-1"><strong>WhatsApp:</strong> {{ garageService.garage()?.phone }}</p>
+             <p class="mb-0"><strong>Address:</strong> {{ garageService.garage()?.address }}</p>
           </div>
           <div class="text-center border p-2 rounded">
              <div class="bg-light d-flex align-items-center justify-content-center mx-auto" style="width: 100px; height: 100px;">
                <img [src]="getQrUrl()" alt="Pay via UPI" style="width: 100%; height: 100%; object-fit: contain;">
              </div>
-             <small class="d-block mt-1 fw-bold">Scan to Pay ₹{{ billTotal() }}</small>
+             <small class="d-block mt-1 fw-bold">Scan to Pay ₹{{ invoice()?.total ?? billTotal() }}</small>
           </div>
         </div>
       </div>
@@ -61,8 +70,8 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
           <div class="row">
             <div class="col-md-6 col-6">
               <h4 class="card-title">Job Card: {{ job()?.id }}</h4>
-              <p class="text-muted d-print-none">Status: 
-                <span class="badge" [ngClass]="getStatusClass(job()?.status)">{{ job()?.status }}</span>
+              <p class="text-muted d-print-none">Status:
+                <app-status-badge [status]="job()?.status || ''"></app-status-badge>
               </p>
               <div class="d-print-none mb-2">
                 <label class="form-label text-muted small">Update Status (स्थिती बदला)</label>
@@ -73,6 +82,16 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
                   <option value="COMPLETED">COMPLETED</option>
                   <option value="DELIVERED">DELIVERED</option>
                 </select>
+              </div>
+              <div class="d-print-none mb-2" *ngIf="canAssignTechnician()">
+                <label class="form-label text-muted small">Assigned Technician</label>
+                <select class="form-select form-select-sm w-50" [ngModel]="job()?.assignedTechnicianId || ''" (ngModelChange)="assignTechnician($event)">
+                  <option value="">— Unassigned —</option>
+                  <option *ngFor="let tech of technicians()" [value]="tech.id">{{ tech.name }}</option>
+                </select>
+              </div>
+              <div class="d-print-none" *ngIf="!canAssignTechnician() && assignedTechnicianName() as techName">
+                <span class="text-muted small">Assigned to: <strong>{{ techName }}</strong></span>
               </div>
             </div>
             <div class="col-md-6 col-6 text-end">
@@ -96,10 +115,25 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
               </div>
               
               <h6 class="mt-3 border-bottom pb-1 mb-2">Services Done (कामे)</h6>
-              <div class="input-group mb-2 d-print-none">
-                <input type="text" class="form-control w-50" placeholder="Service Description" #serviceDescInput>
-                <input type="number" class="form-control w-25" placeholder="Cost" #serviceCostInput>
-                <button class="btn btn-outline-primary" (click)="addService(serviceDescInput.value, serviceCostInput.value); serviceDescInput.value=''; serviceCostInput.value=''">Add</button>
+              <div class="d-print-none bg-light p-3 rounded mb-2">
+                <div class="row g-2 mb-2">
+                  <div class="col-md-8">
+                    <select class="form-select" [(ngModel)]="selectedServiceId" (change)="onServiceSelect()">
+                      <option value="">Select from catalog...</option>
+                      <option *ngFor="let svc of activeServiceCatalog()" [value]="svc.id">
+                        {{ svc.name }} ({{ svc.category }}) - ₹{{ svc.standardPrice }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <button class="btn btn-primary w-100" [disabled]="!selectedServiceId" (click)="addCatalogService()">Add</button>
+                  </div>
+                </div>
+                <div class="input-group">
+                  <input type="text" class="form-control w-50" placeholder="Or a custom one-off item" #serviceDescInput>
+                  <input type="number" class="form-control w-25" placeholder="Cost" #serviceCostInput>
+                  <button class="btn btn-outline-primary" (click)="addService(serviceDescInput.value, serviceCostInput.value); serviceDescInput.value=''; serviceCostInput.value=''">Add Custom</button>
+                </div>
               </div>
               <ul class="list-group list-group-flush">
                 <li *ngIf="job()?.services?.length === 0" class="list-group-item text-muted small ps-0">No services added.</li>
@@ -128,8 +162,8 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
                    <div class="col-md-6">
                      <select class="form-select" [(ngModel)]="selectedPartId" (change)="onPartSelect()">
                        <option value="">Select Part...</option>
-                       <option *ngFor="let item of inventory()" [value]="item.id">
-                         {{ item.name }} (Stock: {{ item.quantity }}) - ₹{{ item.price }}
+                       <option *ngFor="let item of activeInventory()" [value]="item.id">
+                         {{ item.name }} (Stock: {{ item.quantity }}) - ₹{{ item.sellingPrice }}
                        </option>
                      </select>
                    </div>
@@ -190,37 +224,90 @@ import { JobCard, JobStatus, JobCardPart } from '../../core/models/app.models';
                 <span>₹{{ billTotal() }}</span>
               </div>
               
-              <!-- Payment Info -->
-               <div class="mb-3 d-print-none">
-                  <label class="form-label">Payment Status</label>
-                  <select class="form-select" [ngModel]="job()?.paymentStatus || 'PENDING'" (ngModelChange)="updatePayment('paymentStatus', $event)">
-                    <option value="PENDING">Pending (बाकी)</option>
-                    <option value="PAID">Paid (जमा)</option>
+              <!-- Invoice / Payment Ledger -->
+              <div class="d-print-none" *ngIf="!invoice()">
+                <label class="form-label">Discount (optional)</label>
+                <input type="number" class="form-control mb-2" [(ngModel)]="discountInput" name="discount" min="0">
+                <div class="d-grid">
+                  <button class="btn btn-primary" (click)="generateInvoice()">Generate Invoice</button>
+                </div>
+              </div>
+
+              <div class="d-print-none" *ngIf="invoice() as inv">
+                <div class="d-flex justify-content-between small text-muted mb-1">
+                  <span>Invoice</span><strong>#{{ inv.invoiceNumber }}</strong>
+                </div>
+                <div class="d-flex justify-content-between small mb-1"><span>Subtotal</span><span>₹{{ inv.subtotal }}</span></div>
+                <div class="d-flex justify-content-between small mb-1" *ngIf="inv.discount > 0"><span>Discount</span><span>-₹{{ inv.discount }}</span></div>
+                <div class="d-flex justify-content-between small mb-1"><span>Tax ({{ inv.taxRate }}%)</span><span>₹{{ inv.taxAmount }}</span></div>
+                <div class="d-flex justify-content-between fw-bold mb-2"><span>Invoice Total</span><span>₹{{ inv.total }}</span></div>
+                <div class="d-flex justify-content-between mb-2">
+                  <span>Paid: ₹{{ inv.amountPaid }}</span>
+                  <span class="badge" [ngClass]="paymentStatusClass(inv.paymentStatus)">{{ inv.paymentStatus }}</span>
+                </div>
+
+                <div class="input-group input-group-sm mb-2" *ngIf="inv.paymentStatus !== 'PAID'">
+                  <input type="number" class="form-control" placeholder="Amount" [(ngModel)]="paymentAmount" name="paymentAmount">
+                  <select class="form-select" [(ngModel)]="paymentMode" name="paymentMode" style="max-width: 100px;">
+                    <option value="CASH">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="CARD">Card</option>
+                    <option value="OTHER">Other</option>
                   </select>
-               </div>
-               <div class="mb-3 d-print-none">
-                  <label class="form-label">Payment Mode</label>
-                  <select class="form-select" [ngModel]="job()?.paymentMode || 'CASH'" (ngModelChange)="updatePayment('paymentMode', $event)">
-                    <option value="CASH">Cash (रोख)</option>
-                    <option value="UPI">UPI / Online</option>
-                  </select>
-               </div>
-               
+                  <button class="btn btn-outline-primary" (click)="recordPayment()">Record</button>
+                </div>
+
+                <ul class="list-group list-group-flush small" *ngIf="payments().length > 0">
+                  <li class="list-group-item d-flex justify-content-between ps-0 py-1" *ngFor="let p of payments()">
+                    <span>{{ p.mode }}</span>
+                    <span>₹{{ p.amount }} — {{ p.paidAt | date:'short' }}</span>
+                  </li>
+                </ul>
+              </div>
+
                <!-- Print Only Payment Status -->
-               <div class="d-none d-print-block mt-4 pt-4 border-top">
+               <div class="d-none d-print-block mt-4 pt-4 border-top" *ngIf="invoice() as inv">
                   <div class="d-flex justify-content-between">
-                      <span>Payment Status:</span>
-                      <strong>{{ job()?.paymentStatus || 'PENDING' }}</strong>
+                      <span>Invoice #:</span>
+                      <strong>{{ inv.invoiceNumber }}</strong>
                   </div>
                   <div class="d-flex justify-content-between">
-                      <span>Mode:</span>
-                      <strong>{{ job()?.paymentMode || 'CASH' }}</strong>
+                      <span>Payment Status:</span>
+                      <strong>{{ inv.paymentStatus }}</strong>
                   </div>
                   <div class="mt-5 text-center">
                       <p>Thank you for visiting!</p>
                   </div>
                </div>
 
+            </div>
+          </div>
+
+          <!-- Internal Notes (staff-only, never shown to customer / print / WhatsApp) -->
+          <div class="card mt-3 d-print-none">
+            <div class="card-header">Internal Notes <small class="text-muted">(staff only)</small></div>
+            <div class="card-body">
+              <textarea class="form-control" rows="3" placeholder="Notes for the team — not visible to the customer"
+                [ngModel]="job()?.internalNotes || ''" (ngModelChange)="updateInternalNotes($event)"></textarea>
+            </div>
+          </div>
+
+          <!-- Status History -->
+          <div class="card mt-3 d-print-none">
+            <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer" (click)="toggleHistory()">
+              <span>Status History</span>
+              <i class="bi" [ngClass]="showHistory() ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+            </div>
+            <div class="card-body" *ngIf="showHistory()">
+              <ul class="list-group list-group-flush" *ngIf="statusHistory().length > 0; else noHistory">
+                <li class="list-group-item small ps-0" *ngFor="let entry of statusHistory()">
+                  <strong>{{ entry.fromStatus || 'created' }} → {{ entry.toStatus }}</strong>
+                  <span class="text-muted"> — {{ entry.changedAt | date:'short' }}</span>
+                </li>
+              </ul>
+              <ng-template #noHistory>
+                <p class="text-muted small mb-0">No status changes recorded yet.</p>
+              </ng-template>
             </div>
           </div>
         </div>
@@ -253,12 +340,18 @@ export class JobCardDetailComponent implements OnInit {
   private customerService = inject(CustomerService);
   private inventoryService = inject(InventoryService);
   private whatsappService = inject(WhatsappService);
-
-  // Placeholder UPI ID - User needs to change this
-  garageUpiId = 'gokuleshmarathe5-2@okaxis';
+  private toastService = inject(ToastService);
+  private serviceCatalogService = inject(ServiceCatalogService);
+  private authService = inject(AuthService);
+  private teamService = inject(TeamService);
+  private invoiceService = inject(InvoiceService);
+  readonly garageService = inject(GarageService);
 
   jobId: string | null = null;
   currentJobId = signal<string | null>(null);
+  activeServiceCatalog = this.serviceCatalogService.activeServices;
+  selectedServiceId = '';
+  technicians = this.teamService.technicians;
 
   job = computed(() => {
     const id = this.currentJobId();
@@ -270,26 +363,53 @@ export class JobCardDetailComponent implements OnInit {
     return j ? this.customerService.getCustomer(j.customerMobile) : null;
   });
 
+  canAssignTechnician = computed(() => this.authService.currentUser()?.role !== 'technician');
+
+  assignedTechnicianName = computed(() => {
+    const techId = this.job()?.assignedTechnicianId;
+    return techId ? (this.teamService.getMember(techId)?.name ?? null) : null;
+  });
+
+  showHistory = signal(false);
+  statusHistory = signal<StatusHistoryEntry[]>([]);
+
   inventory = this.inventoryService.inventory;
+  activeInventory = computed(() => this.inventory().filter(i => i.active));
 
   selectedPartId = '';
   selectedPartQty = 1;
 
   partsTotal = computed(() => {
     const j = this.job();
-    if (!j) return 0;
-    return j.parts.reduce((sum, p) => sum + (p.price * p.quantity), 0);
+    return j ? calculatePartsTotal(j) : 0;
   });
 
   servicesTotal = computed(() => {
     const j = this.job();
-    if (!j) return 0;
-    return j.services.reduce((sum, s) => sum + (s.cost || 0), 0);
+    return j ? calculateServicesTotal(j) : 0;
   });
 
   billTotal = computed(() => {
     return this.partsTotal() + this.servicesTotal();
   });
+
+  invoice = computed(() => {
+    const j = this.job();
+    return j ? this.invoiceService.getInvoiceForJobCard(j.id) : undefined;
+  });
+
+  discountInput = 0;
+  paymentAmount = 0;
+  paymentMode: PaymentMode = 'CASH';
+  payments = signal<PaymentRecord[]>([]);
+
+  constructor() {
+    effect(() => {
+      const inv = this.invoice();
+      if (inv) this.loadPayments();
+      else this.payments.set([]);
+    });
+  }
 
   ngOnInit() {
     this.route.paramMap.subscribe(params => {
@@ -299,21 +419,90 @@ export class JobCardDetailComponent implements OnInit {
 
   updateStatus(newStatus: any) {
     if (this.currentJobId()) {
-      this.jobService.updateStatus(this.currentJobId()!, newStatus);
+      this.jobService.updateStatus(this.currentJobId()!, newStatus)
+        .then(() => { if (this.showHistory()) this.loadStatusHistory(); })
+        .catch(() => this.toastService.error('Could not update status. Please try again.'));
     }
   }
 
-  updatePayment(field: 'paymentStatus' | 'paymentMode', value: any) {
-    if (this.currentJobId()) {
-      this.jobService.updateJob(this.currentJobId()!, { [field]: value });
+  assignTechnician(technicianId: string) {
+    if (!this.currentJobId()) return;
+    this.jobService.assignTechnician(this.currentJobId()!, technicianId)
+      .catch(() => this.toastService.error('Could not assign technician. Please try again.'));
+  }
+
+  updateInternalNotes(notes: string) {
+    if (!this.currentJobId()) return;
+    this.jobService.updateJob(this.currentJobId()!, { internalNotes: notes })
+      .catch(() => this.toastService.error('Could not save notes. Please try again.'));
+  }
+
+  toggleHistory() {
+    this.showHistory.update(v => !v);
+    if (this.showHistory()) this.loadStatusHistory();
+  }
+
+  private async loadStatusHistory() {
+    const id = this.currentJobId();
+    if (!id) return;
+    this.statusHistory.set(await this.jobService.getStatusHistory(id));
+  }
+
+  async generateInvoice() {
+    const j = this.job();
+    if (!j) return;
+    try {
+      const taxRate = this.garageService.garage()?.taxRate ?? 0;
+      await this.invoiceService.createInvoiceFromJobCard(j, taxRate, this.discountInput || 0);
+      this.toastService.success('Invoice generated.');
+    } catch {
+      this.toastService.error('Could not generate the invoice. Please try again.');
     }
   }
 
-  updateCost(field: 'serviceCost' | 'labourCost', event: any) {
-    if (this.currentJobId()) {
-      const val = parseFloat(event.target.value) || 0;
-      this.jobService.updateJob(this.currentJobId()!, { [field]: val });
+  async recordPayment() {
+    const inv = this.invoice();
+    if (!inv || !this.paymentAmount || this.paymentAmount <= 0) return;
+    try {
+      await this.invoiceService.recordPayment(inv.id, this.paymentAmount, this.paymentMode);
+      this.paymentAmount = 0;
+      await this.loadPayments();
+      this.toastService.success('Payment recorded.');
+    } catch {
+      this.toastService.error('Could not record the payment. Please try again.');
     }
+  }
+
+  private async loadPayments() {
+    const inv = this.invoice();
+    if (!inv) return;
+    this.payments.set(await this.invoiceService.getPayments(inv.id));
+  }
+
+  paymentStatusClass(status: string): string {
+    switch (status) {
+      case 'PAID': return 'bg-success';
+      case 'PARTIAL': return 'bg-warning text-dark';
+      default: return 'bg-secondary';
+    }
+  }
+
+  onServiceSelect() {
+    // no-op hook, kept symmetrical with onPartSelect() in case per-selection
+    // defaults (e.g. resetting a qty field) are needed later
+  }
+
+  addCatalogService() {
+    if (!this.selectedServiceId || !this.currentJobId()) return;
+    const catalogItem = this.serviceCatalogService.getService(this.selectedServiceId);
+    if (!catalogItem) return;
+
+    const j = this.job()!;
+    const newServices = [...j.services, { description: catalogItem.name, cost: catalogItem.standardPrice }];
+    this.jobService.updateJob(j.id, { services: newServices })
+      .catch(() => this.toastService.error('Could not add the service. Please try again.'));
+
+    this.selectedServiceId = '';
   }
 
   addService(description: string, costStr: string) {
@@ -321,13 +510,15 @@ export class JobCardDetailComponent implements OnInit {
     const cost = parseFloat(costStr) || 0;
     const j = this.job()!;
     const newServices = [...j.services, { description, cost }];
-    this.jobService.updateJob(j.id, { services: newServices });
+    this.jobService.updateJob(j.id, { services: newServices })
+      .catch(() => this.toastService.error('Could not add the service. Please try again.'));
   }
 
   removeService(index: number) {
     const j = this.job()!;
     const newServices = j.services.filter((_, i) => i !== index);
-    this.jobService.updateJob(j.id, { services: newServices });
+    this.jobService.updateJob(j.id, { services: newServices })
+      .catch(() => this.toastService.error('Could not remove the service. Please try again.'));
   }
 
   onPartSelect() {
@@ -344,18 +535,20 @@ export class JobCardDetailComponent implements OnInit {
       itemId: item.id,
       name: item.name,
       quantity: this.selectedPartQty,
-      price: item.price
+      price: item.sellingPrice
     };
 
     if (item.quantity < this.selectedPartQty) {
-      alert('Not enough stock!');
+      this.toastService.error('Not enough stock!');
       return;
     }
 
-    this.inventoryService.updateStock(item.id, -this.selectedPartQty);
+    this.inventoryService.updateStock(item.id, -this.selectedPartQty, 'sale', j.id)
+      .catch(() => this.toastService.error('Could not update stock for this part. Please try again.'));
 
     const newParts = [...j.parts, newPart];
-    this.jobService.updateJob(j.id, { parts: newParts });
+    this.jobService.updateJob(j.id, { parts: newParts })
+      .catch(() => this.toastService.error('Could not add the part. Please try again.'));
 
     this.selectedPartId = '';
     this.selectedPartQty = 1;
@@ -365,22 +558,12 @@ export class JobCardDetailComponent implements OnInit {
     const j = this.job()!;
     const part = j.parts[index];
 
-    this.inventoryService.updateStock(part.itemId, part.quantity);
+    this.inventoryService.updateStock(part.itemId, part.quantity, 'restock', j.id)
+      .catch(() => this.toastService.error('Could not restore stock for this part. Please try again.'));
 
     const newParts = j.parts.filter((_, i) => i !== index);
-    this.jobService.updateJob(j.id, { parts: newParts });
-  }
-
-  getStatusClass(status: string | undefined): string {
-    if (!status) return '';
-    switch (status) {
-      case 'RECEIVED': return 'bg-secondary';
-      case 'IN_PROGRESS': return 'bg-primary';
-      case 'WAITING_PARTS': return 'bg-warning text-dark';
-      case 'COMPLETED': return 'bg-success';
-      case 'DELIVERED': return 'bg-dark';
-      default: return 'bg-secondary';
-    }
+    this.jobService.updateJob(j.id, { parts: newParts })
+      .catch(() => this.toastService.error('Could not remove the part. Please try again.'));
   }
 
   showWhatsapp(): boolean {
@@ -394,18 +577,18 @@ export class JobCardDetailComponent implements OnInit {
     const c = this.customer();
     if (!j || !c) return;
 
-    const garageName = 'Revolution Moto Garage';
+    const garageName = this.garageService.garage()?.name ?? 'the garage';
     let msg = '';
     switch (j.status) {
       case 'RECEIVED': msg = `Hi ${c.name}, welcome to ${garageName}. We received your bike ${c.bikeNumber}. Job Card: ${j.id}.`; break;
       case 'IN_PROGRESS': msg = `Hi ${c.name}, work has started on your bike ${c.bikeNumber} at ${garageName}.`; break;
       case 'WAITING_PARTS': msg = `Hi ${c.name}, we are waiting for parts for your bike ${c.bikeNumber} at ${garageName}.`; break;
-      case 'COMPLETED':
-      case 'COMPLETED':
+      case 'COMPLETED': {
         const services = j.services.length ? '\nServices:\n' + j.services.map(s => `• ${s.description}: ₹${s.cost}`).join('\n') : '';
         const parts = j.parts.length ? '\nSpares:\n' + j.parts.map(p => `• ${p.name} (${p.quantity}): ₹${p.price * p.quantity}`).join('\n') : '';
         msg = `Hi ${c.name}, your bike ${c.bikeNumber} is ready at ${garageName}!\n${services}${parts}\n\nTotal Bill: ₹${this.billTotal()}.`;
         break;
+      }
       case 'DELIVERED': msg = `Hi ${c.name}, thank you for visiting ${garageName}!`; break;
       default: msg = `Update for your bike ${c.bikeNumber} from ${garageName}: Status is ${j.status}.`;
     }
@@ -418,10 +601,11 @@ export class JobCardDetailComponent implements OnInit {
     const c = this.customer();
     if (!j || !c) return;
 
-    const garageName = 'Revolution Moto Garage';
-    const total = this.billTotal();
+    const garageName = this.garageService.garage()?.name ?? 'the garage';
+    const inv = this.invoice();
+    const total = inv ? inv.total : this.billTotal();
 
-    let msg = `*INVOICE* - ${garageName}\n`;
+    let msg = inv ? `*INVOICE #${inv.invoiceNumber}* - ${garageName}\n` : `*ESTIMATE* - ${garageName}\n`;
     msg += `Job No: ${j.id}\n`;
     msg += `Date: ${new Date().toLocaleDateString()}\n`;
     msg += `Customer: ${c.name} (${c.mobile})\n`;
@@ -443,13 +627,20 @@ export class JobCardDetailComponent implements OnInit {
     }
 
     msg += `--------------------------------\n`;
+    if (inv) {
+      msg += `Subtotal: ₹${inv.subtotal}\n`;
+      if (inv.discount > 0) msg += `Discount: -₹${inv.discount}\n`;
+      msg += `Tax (${inv.taxRate}%): ₹${inv.taxAmount}\n`;
+    }
     msg += `*TOTAL BILL: ₹${total}*`;
 
     this.whatsappService.openChat(c.mobile, msg);
   }
 
   getQrUrl(): string {
-    const upiString = `upi://pay?pa=${this.garageUpiId}&pn=RevolutionMotoGarage&am=${this.billTotal()}&tn=Job:${this.jobId}`;
+    const upiId = this.garageService.garage()?.upiId ?? '';
+    const amount = this.invoice()?.total ?? this.billTotal();
+    const upiString = `upi://pay?pa=${upiId}&pn=RevolutionMotoGarage&am=${amount}&tn=Job:${this.jobId}`;
     return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
   }
 

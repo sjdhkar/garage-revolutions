@@ -1,0 +1,112 @@
+/*
+ * Re-skins Bootstrap 5's own CSS custom properties to the design tokens,
+ * so existing `row`/`col-*`/`table`/`card`/`btn` markup across the app picks
+ * up the new look without rewriting every template's classes.
+ */
+:root {
+  --bs-body-font-family: var(--font-sans);
+  --bs-body-color: var(--text-primary);
+  --bs-body-bg: var(--surface-sunken);
+  --bs-border-color: var(--border);
+  --bs-border-radius: var(--radius-md);
+  --bs-border-radius-sm: var(--radius-sm);
+  --bs-border-radius-lg: var(--radius-lg);
+
+  --bs-primary: var(--accent-500);
+  --bs-primary-rgb: 99, 102, 241;
+  --bs-success: var(--success-500);
+  --bs-warning: var(--warning-500);
+  --bs-danger: var(--danger-500);
+
+  --bs-link-color: var(--accent-600);
+  --bs-link-hover-color: var(--accent-700);
+}
+
+body {
+  background: var(--surface-sunken);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+/* Cards: thin border instead of a heavy drop shadow; no hover-lift gimmick. */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease;
+}
+.card:hover {
+  transform: none;
+}
+.card-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+
+/* Buttons: flatter, sharper, no gradients */
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  box-shadow: none !important;
+}
+.btn-primary {
+  background: var(--accent-500);
+  border-color: var(--accent-500);
+}
+.btn-primary:hover, .btn-primary:focus {
+  background: var(--accent-600);
+  border-color: var(--accent-600);
+}
+.btn-outline-secondary {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+.btn-outline-secondary:hover {
+  background: var(--gray-100);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.btn-lg {
+  padding: 0.65rem 1.25rem;
+  font-weight: 600;
+}
+
+/* Tables: quieter header, thin row dividers */
+.table {
+  --bs-table-border-color: var(--border);
+  font-size: var(--text-sm);
+}
+.table thead.table-light th {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Forms */
+.form-control, .form-select {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+}
+.form-control:focus, .form-select:focus {
+  border-color: var(--accent-500);
+  box-shadow: 0 0 0 3px var(--accent-100);
+}
+.form-label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Badges: flatter, tinted background instead of solid fill where practical */
+.badge {
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+}

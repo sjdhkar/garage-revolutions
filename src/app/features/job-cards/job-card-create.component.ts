@@ -64,10 +64,12 @@ import { Customer } from '../../core/models/app.models';
               <textarea class="form-control" [(ngModel)]="complaint" name="complaint" rows="3" required></textarea>
             </div>
 
+            <div class="alert alert-danger" *ngIf="errorMessage()">{{ errorMessage() }}</div>
+
             <div class="d-grid gap-2">
-              <button type="submit" class="btn btn-primary btn-lg" 
-                      [disabled]="!mobile || (!existingCustomer && !newCustomerName)">
-                Create Job Card
+              <button type="submit" class="btn btn-primary btn-lg"
+                      [disabled]="isSubmitting() || !mobile || (!existingCustomer && !newCustomerName)">
+                {{ isSubmitting() ? 'Creating...' : 'Create Job Card' }}
               </button>
             </div>
           </form>
@@ -92,6 +94,8 @@ export class JobCardCreateComponent {
 
   complaint = '';
   customerNamesObserved = false;
+  isSubmitting = signal(false);
+  errorMessage = signal('');
 
   onMobileBlur() {
     if (this.mobile.length === 10) {
@@ -106,33 +110,40 @@ export class JobCardCreateComponent {
     }
   }
 
-  onSubmit() {
-    if (!this.mobile) return;
+  async onSubmit() {
+    if (!this.mobile || this.isSubmitting()) return;
 
-    // 1. Create Customer if needed
-    if (!this.existingCustomer) {
-      const newCust: Customer = {
-        mobile: this.mobile,
-        name: this.newCustomerName,
-        bikeNumber: this.bikeNumber.toUpperCase(),
-        bikeModel: this.bikeModel,
-        allowWhatsApp: this.allowWhatsApp
-      };
-      this.customerService.addCustomer(newCust);
-      this.existingCustomer = newCust;
+    this.errorMessage.set('');
+    this.isSubmitting.set(true);
+    try {
+      // 1. Create Customer if needed
+      let customerMobile = this.existingCustomer?.mobile;
+      if (!this.existingCustomer) {
+        const newCust: Omit<Customer, 'garageId'> = {
+          mobile: this.mobile,
+          name: this.newCustomerName,
+          bikeNumber: this.bikeNumber.toUpperCase(),
+          bikeModel: this.bikeModel,
+          allowWhatsApp: this.allowWhatsApp
+        };
+        await this.customerService.addCustomer(newCust);
+        customerMobile = newCust.mobile;
+      }
+
+      // 2. Create Job Card
+      await this.jobService.createJobCard({
+        customerMobile: customerMobile!,
+        complaint: this.complaint,
+        services: [],
+        parts: [],
+        status: 'RECEIVED'
+      });
+
+      this.router.navigate(['/job-cards']);
+    } catch (err: any) {
+      this.errorMessage.set('Could not create the job card. Please check your connection and try again.');
+    } finally {
+      this.isSubmitting.set(false);
     }
-
-    // 2. Create Job Card
-    this.jobService.createJobCard({
-      customerMobile: this.existingCustomer.mobile,
-      complaint: this.complaint,
-      services: [],
-      parts: [],
-      status: 'RECEIVED',
-      serviceCost: 0,
-      labourCost: 0
-    });
-
-    this.router.navigate(['/job-cards']);
   }
 }

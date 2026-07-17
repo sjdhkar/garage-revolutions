@@ -14,10 +14,13 @@ import {
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../configs/firebase.config';
 import { AppUser } from '../models/user.model';
+import { GarageService } from './garage.service';
+import { DEFAULT_GARAGE_ID } from '../configs/garage.constants';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
     private router = inject(Router);
+    private garageService = inject(GarageService);
 
     readonly currentUser = signal<AppUser | null | undefined>(undefined); // undefined = loading
     readonly isLoading = computed(() => this.currentUser() === undefined);
@@ -70,6 +73,7 @@ export class AuthService {
 
                 this.currentUser.set(profile);
                 this.settlePending(profile);
+                this.garageService.ensureGarageExists();
             } catch (e) {
                 this.currentUser.set(null);
                 this.settlePendingError(e as Error);
@@ -172,6 +176,7 @@ export class AuthService {
             name,
             email: firebaseUser.email ?? '',
             provider,
+            garageId: DEFAULT_GARAGE_ID,
             role: 'owner',
             status: 'active',
             emailVerified: firebaseUser.emailVerified,

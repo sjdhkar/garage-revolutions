@@ -17,6 +17,7 @@ export interface AppUser {
     provider: LoginProvider;
     googleId?: string;
     profileImage?: string;
+    garageId: string;
     role: UserRole;
     status: UserStatus;
     emailVerified: boolean;

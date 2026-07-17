@@ -1,13 +1,17 @@
 import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { CustomerService } from '../../core/services/customer.service';
 import { WhatsappService } from '../../core/services/whatsapp.service';
+import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
+
+const PAGE_SIZE = 20;
 
 @Component({
   selector: 'app-customer-list',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink, PaginationComponent],
   template: `
     <div class="row mb-4 align-items-center">
       <div class="col">
@@ -20,7 +24,7 @@ import { WhatsappService } from '../../core/services/whatsapp.service';
 
     <div class="card mb-3">
       <div class="card-body">
-        <input type="text" class="form-control" placeholder="Search Customer (Name, Mobile, Bike No)" [(ngModel)]="searchQuery">
+        <input type="text" class="form-control" placeholder="Search Customer (Name, Mobile, Bike No)" [(ngModel)]="searchQuery" (ngModelChange)="page.set(0)">
       </div>
     </div>
 
@@ -37,7 +41,7 @@ import { WhatsappService } from '../../core/services/whatsapp.service';
             </tr>
           </thead>
           <tbody>
-            <tr *ngFor="let cust of filteredCustomers()">
+            <tr *ngFor="let cust of pagedCustomers()">
               <td>{{ cust.name }}</td>
               <td>{{ cust.mobile }}</td>
               <td>{{ cust.bikeModel }} - {{ cust.bikeNumber }}</td>
@@ -56,6 +60,7 @@ import { WhatsappService } from '../../core/services/whatsapp.service';
           </tbody>
         </table>
       </div>
+      <app-pagination [page]="page()" [pageSize]="pageSize" [totalItems]="filteredCustomers().length" (pageChange)="page.set($event)"></app-pagination>
     </div>
   `
 })
@@ -64,6 +69,8 @@ export class CustomerListComponent {
   private whatsappService = inject(WhatsappService);
 
   searchQuery = signal('');
+  page = signal(0);
+  pageSize = PAGE_SIZE;
 
   filteredCustomers = computed(() => {
     const query = this.searchQuery().toLowerCase();
@@ -72,6 +79,11 @@ export class CustomerListComponent {
       c.mobile.includes(query) ||
       c.bikeNumber.toLowerCase().includes(query)
     );
+  });
+
+  pagedCustomers = computed(() => {
+    const start = this.page() * this.pageSize;
+    return this.filteredCustomers().slice(start, start + this.pageSize);
   });
 
   openWa(c: any) {

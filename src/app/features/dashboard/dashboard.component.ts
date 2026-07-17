@@ -11,40 +11,40 @@ import { InventoryService } from '../../core/services/inventory.service';
     template: `
     <h2 class="mb-4">Dashboard (डॅशबोर्ड)</h2>
 
-    <div class="row g-4 mb-4">
-       <!-- Cards -->
+    <div class="row g-3 mb-4">
+       <!-- Stat tiles: thin border + a small accent bar, not a solid color fill -->
        <div class="col-md-3">
-         <div class="card text-white bg-primary h-100">
+         <div class="card h-100 stat-tile stat-tile-accent">
            <div class="card-body">
-             <h5 class="card-title">Today's Jobs</h5>
-             <h2 class="display-4">{{ todayJobCount() }}</h2>
+             <div class="stat-label">Today's Jobs</div>
+             <div class="stat-value">{{ todayJobCount() }}</div>
            </div>
          </div>
        </div>
        <div class="col-md-3">
-         <div class="card text-white bg-warning text-dark h-100">
+         <div class="card h-100 stat-tile stat-tile-warning">
            <div class="card-body">
-             <h5 class="card-title">Pending Delivery</h5>
-             <h2 class="display-4">{{ pendingDeliveryCount() }}</h2>
-             <small>(Completed but not delivered)</small>
+             <div class="stat-label">Pending Delivery</div>
+             <div class="stat-value">{{ pendingDeliveryCount() }}</div>
+             <small class="text-muted">Completed but not delivered</small>
            </div>
          </div>
        </div>
        <div class="col-md-3">
-         <div class="card text-white bg-success h-100">
+         <div class="card h-100 stat-tile stat-tile-success">
            <div class="card-body">
-             <h5 class="card-title">Active Jobs</h5>
-             <h2 class="display-4">{{ activeJobCount() }}</h2>
-             <small>(In Progress / Waiting Parts)</small>
+             <div class="stat-label">Active Jobs</div>
+             <div class="stat-value">{{ activeJobCount() }}</div>
+             <small class="text-muted">In Progress / Waiting Parts</small>
            </div>
          </div>
        </div>
        <div class="col-md-3">
-         <div class="card text-white bg-danger h-100">
+         <div class="card h-100 stat-tile stat-tile-danger position-relative">
            <div class="card-body">
-             <h5 class="card-title">Low Stock Items</h5>
-             <h2 class="display-4">{{ lowStockCount() }}</h2>
-             <a routerLink="/inventory" class="text-white stretched-link" *ngIf="lowStockCount() > 0">View Inventory</a>
+             <div class="stat-label">Low Stock Items</div>
+             <div class="stat-value">{{ lowStockCount() }}</div>
+             <a routerLink="/inventory" class="stretched-link" *ngIf="lowStockCount() > 0">View Parts</a>
            </div>
          </div>
        </div>
@@ -54,8 +54,8 @@ import { InventoryService } from '../../core/services/inventory.service';
     <div class="row mb-4">
       <div class="col-12">
         <div class="card">
-           <div class="card-header bg-light">
-             <strong>Quick Actions</strong>
+           <div class="card-header">
+             Quick Actions
            </div>
            <div class="card-body">
              <a routerLink="/job-cards/new" class="btn btn-primary btn-lg me-3">
@@ -64,14 +64,42 @@ import { InventoryService } from '../../core/services/inventory.service';
              <a routerLink="/job-cards" class="btn btn-outline-primary btn-lg me-3">
                <i class="bi bi-list"></i> View All Jobs
              </a>
-             <a routerLink="/inventory" class="btn btn-outline-secondary btn-lg">
-               <i class="bi bi-box-seam"></i> Manage Inventory
+             <a routerLink="/inventory" class="btn btn-outline-secondary btn-lg me-3">
+               <i class="bi bi-box-seam"></i> Manage Parts
+             </a>
+             <a routerLink="/services" class="btn btn-outline-secondary btn-lg me-3">
+               <i class="bi bi-wrench-adjustable"></i> Manage Services
+             </a>
+             <a routerLink="/quotations" class="btn btn-outline-secondary btn-lg">
+               <i class="bi bi-file-earmark-text"></i> Quotations
              </a>
            </div>
         </div>
       </div>
     </div>
-  `
+  `,
+    styles: [`
+    .stat-tile {
+      border-left-width: 3px;
+      border-left-style: solid;
+    }
+    .stat-tile-accent { border-left-color: var(--accent-500); }
+    .stat-tile-warning { border-left-color: var(--warning-500); }
+    .stat-tile-success { border-left-color: var(--success-500); }
+    .stat-tile-danger { border-left-color: var(--danger-500); }
+    .stat-label {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      font-weight: 500;
+      margin-bottom: 0.35rem;
+    }
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+  `]
 })
 export class DashboardComponent {
     private jobService = inject(JobCardService);

@@ -50,6 +50,21 @@ export const routes: Routes = [
         loadComponent: () => import('./features/inventory/inventory-list.component').then(m => m.InventoryListComponent)
     },
     {
+        path: 'services',
+        canActivate: [authGuard],
+        loadComponent: () => import('./features/services/service-catalog-list.component').then(m => m.ServiceCatalogListComponent)
+    },
+    {
+        path: 'quotations',
+        canActivate: [authGuard],
+        loadComponent: () => import('./features/quotations/quotation-list.component').then(m => m.QuotationListComponent)
+    },
+    {
+        path: 'settings',
+        canActivate: [authGuard],
+        loadComponent: () => import('./features/settings/settings.component').then(m => m.SettingsComponent)
+    },
+    {
         path: 'reports',
         canActivate: [authGuard],
         loadComponent: () => import('./features/reports/reports.component').then(m => m.ReportsComponent)

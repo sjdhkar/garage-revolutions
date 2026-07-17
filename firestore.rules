@@ -1,8 +1,193 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // The requester's own user profile doc. Only safe to call where signedIn() is
+    // already known true and the profile is expected to exist (post-registration).
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveMember(garageId) {
+      return signedIn()
+        && myProfile().status == 'active'
+        && myProfile().garageId == garageId;
+    }
+
+    function myRole() {
+      return myProfile().role;
+    }
+
+    function isManagerOrOwner(garageId) {
+      return isActiveMember(garageId) && myRole() in ['owner', 'manager'];
+    }
+
+    // ── users ──────────────────────────────────────────────────────────────
+    // A user can always read/create/update their own profile doc (this is how
+    // registration and self-service profile edits work). Reading OTHER users'
+    // docs, or changing role/status, requires being an active owner/manager of
+    // the same garage — closing the gap where the old blanket rule let any
+    // authenticated user, including a disabled one, read or write anything.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isActiveMember(resource.data.garageId));
+      allow create: if signedIn() && request.auth.uid == uid;
+      // A user may freely update their own profile EXCEPT role/status/garageId —
+      // otherwise a self-registered user could grant themselves a higher role or
+      // reactivate a suspended/disabled account via a direct Firestore write.
+      // Changing those three fields requires an owner/manager of that garage.
+      allow update: if signedIn() && (
+        (request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.garageId == resource.data.garageId)
+        || isManagerOrOwner(resource.data.garageId)
+      );
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+    }
+
+    // ── garages ────────────────────────────────────────────────────────────
+    match /garages/{garageId} {
+      allow read: if isActiveMember(garageId);
+      // Bootstrap: ensureGarageExists() runs right after the caller's own user
+      // profile is written (with garageId already stamped on it), so requiring
+      // that profile's garageId to match the doc being created is enough to
+      // block an arbitrary signed-in user from creating garage docs for a
+      // garage they don't belong to, without needing the doc to exist yet.
+      allow create: if signedIn() && myProfile().garageId == garageId;
+      allow update: if isManagerOrOwner(garageId);
+      allow delete: if false;
+
+      match /{subcollection=**} {
+        allow read: if isActiveMember(garageId);
+        allow write: if isManagerOrOwner(garageId);
+      }
+    }
+
+    // ── customers ──────────────────────────────────────────────────────────
+    match /customers/{customerId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+    }
+
+    // ── jobCards ───────────────────────────────────────────────────────────
+    // Technicians only ever see/edit job cards assigned to them; every other
+    // active role (owner/manager/service_advisor/accountant) sees the whole
+    // garage's job cards. This is enforced here, not just hidden in the UI,
+    // so a technician can't bypass the boundary by querying Firestore directly.
+    match /jobCards/{jobCardId} {
+      allow read: if isActiveMember(resource.data.garageId)
+        && (myRole() != 'technician' || resource.data.assignedTechnicianId == request.auth.uid);
+      allow create: if isActiveMember(request.resource.data.garageId) && myRole() != 'technician';
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId
+        && (myRole() != 'technician' || resource.data.assignedTechnicianId == request.auth.uid);
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+
+      // Subcollections (e.g. statusHistory) follow the same assigned-technician
+      // boundary as the parent job card itself — a technician can write a status
+      // history entry for their OWN assigned job (matching the "full edit on
+      // assigned jobs" decision), but not for a job that isn't theirs.
+      match /{subcollection=**} {
+        allow read: if isActiveMember(get(/databases/$(database)/documents/jobCards/$(jobCardId)).data.garageId)
+          && (myRole() != 'technician' || get(/databases/$(database)/documents/jobCards/$(jobCardId)).data.assignedTechnicianId == request.auth.uid);
+        allow write: if isActiveMember(get(/databases/$(database)/documents/jobCards/$(jobCardId)).data.garageId)
+          && (myRole() != 'technician' || get(/databases/$(database)/documents/jobCards/$(jobCardId)).data.assignedTechnicianId == request.auth.uid);
+      }
+    }
+
+    // ── parts (inventory) ────────────────────────────────────────────────────
+    match /parts/{partId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+
+      // Stock movement audit trail: any active member of the garage can log a
+      // movement (adding/removing a part on a job card does this automatically),
+      // but movements are immutable once written — no update/delete.
+      match /stockMovements/{movementId} {
+        allow read: if isActiveMember(get(/databases/$(database)/documents/parts/$(partId)).data.garageId);
+        allow create: if isActiveMember(get(/databases/$(database)/documents/parts/$(partId)).data.garageId);
+        allow update, delete: if false;
+      }
+    }
+
+    // ── suppliers ────────────────────────────────────────────────────────────
+    match /suppliers/{supplierId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+    }
+
+    // ── serviceCatalog ───────────────────────────────────────────────────────
+    match /serviceCatalog/{serviceId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+    }
+
+    // ── invoices ─────────────────────────────────────────────────────────────
+    // Invoices are an immutable billing snapshot: any active member can create
+    // one (billing is part of the normal job-completion flow) and record
+    // payments against it, but the snapshot itself is never edited or deleted
+    // once issued — only `amountPaid`/`paymentStatus` change, and only via the
+    // recordPayment transaction (still an `update`, so covered by allow update).
+    match /invoices/{invoiceId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId
+        && request.resource.data.invoiceNumber == resource.data.invoiceNumber
+        && request.resource.data.lineItems == resource.data.lineItems
+        && request.resource.data.total == resource.data.total;
+      allow delete: if false;
+
+      match /payments/{paymentId} {
+        allow read: if isActiveMember(get(/databases/$(database)/documents/invoices/$(invoiceId)).data.garageId);
+        allow create: if isActiveMember(get(/databases/$(database)/documents/invoices/$(invoiceId)).data.garageId);
+        allow update, delete: if false;
+      }
+    }
+
+    // ── quotations ───────────────────────────────────────────────────────────
+    match /quotations/{quotationId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isManagerOrOwner(resource.data.garageId);
+    }
+
+    // ── activityLogs ─────────────────────────────────────────────────────────
+    // Append-only: any active member can write a log entry (including an
+    // unauthenticated-adjacent error before role is fully known — the
+    // LoggingService still requires signedIn() via isActiveMember below since
+    // an actual write needs an auth context to attribute the entry to a uid),
+    // but entries are never edited or deleted, and only an owner/manager can
+    // read the log (it may contain stack traces / internal detail not meant
+    // for every role).
+    match /activityLogs/{logId} {
+      allow read: if isManagerOrOwner(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update, delete: if false;
+    }
+
+    // Everything else (including the abandoned pre-Phase-2 `job-cards`/`inventory`
+    // collections) is closed by default.
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

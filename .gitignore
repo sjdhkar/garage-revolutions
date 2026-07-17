@@ -48,3 +48,4 @@ Thumbs.db
 # Build artifacts
 /release
 /dist
+firestore-debug.log

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CustomerService } from '../../core/services/customer.service';
+import { VehicleService } from '../../core/services/vehicle.service';
 import { WhatsappService } from '../../core/services/whatsapp.service';
 import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 
@@ -35,7 +36,7 @@ const PAGE_SIZE = 20;
             <tr>
               <th>Name</th>
               <th>Mobile</th>
-              <th>Bike Info</th>
+              <th>Vehicles</th>
               <th>WhatsApp</th>
               <th>Actions</th>
             </tr>
@@ -44,7 +45,10 @@ const PAGE_SIZE = 20;
             <tr *ngFor="let cust of pagedCustomers()">
               <td>{{ cust.name }}</td>
               <td>{{ cust.mobile }}</td>
-              <td>{{ cust.bikeModel }} - {{ cust.bikeNumber }}</td>
+              <td>
+                <div *ngFor="let v of vehiclesFor(cust.mobile)" class="small">{{ v.bikeModel }} - {{ v.bikeNumber }}</div>
+                <span *ngIf="vehiclesFor(cust.mobile).length === 0" class="text-muted small">No vehicles on file</span>
+              </td>
               <td>
                 <span class="badge" [ngClass]="cust.allowWhatsApp ? 'bg-success' : 'bg-secondary'">
                   {{ cust.allowWhatsApp ? 'Yes' : 'No' }}
@@ -66,6 +70,7 @@ const PAGE_SIZE = 20;
 })
 export class CustomerListComponent {
   private customerService = inject(CustomerService);
+  private vehicleService = inject(VehicleService);
   private whatsappService = inject(WhatsappService);
 
   searchQuery = signal('');
@@ -74,17 +79,22 @@ export class CustomerListComponent {
 
   filteredCustomers = computed(() => {
     const query = this.searchQuery().toLowerCase();
-    return this.customerService.customers().filter(c =>
-      c.name.toLowerCase().includes(query) ||
-      c.mobile.includes(query) ||
-      c.bikeNumber.toLowerCase().includes(query)
-    );
+    return this.customerService.customers().filter(c => {
+      const vehicles = this.vehicleService.getVehiclesForCustomer(c.mobile);
+      return c.name.toLowerCase().includes(query) ||
+        c.mobile.includes(query) ||
+        vehicles.some(v => v.bikeNumber.toLowerCase().includes(query) || v.bikeModel.toLowerCase().includes(query));
+    });
   });
 
   pagedCustomers = computed(() => {
     const start = this.page() * this.pageSize;
     return this.filteredCustomers().slice(start, start + this.pageSize);
   });
+
+  vehiclesFor(customerId: string) {
+    return this.vehicleService.getVehiclesForCustomer(customerId);
+  }
 
   openWa(c: any) {
     this.whatsappService.openChat(c.mobile, `Hello ${c.name}, greeting from our garage!`);

@@ -25,6 +25,7 @@ export interface Invoice {
     paymentStatus: InvoicePaymentStatus;
     issuedAt: string;
     issuedBy: string; // uid
+    voided?: boolean; // once true, the job card can be edited again and a fresh invoice generated
 }
 
 export interface PaymentRecord {

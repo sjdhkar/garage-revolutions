@@ -2,8 +2,6 @@ export interface Customer {
     garageId: string;
     mobile: string; // Primary Key
     name: string;
-    bikeNumber: string;
-    bikeModel: string;
     allowWhatsApp: boolean;
 }
 
@@ -20,6 +18,7 @@ export interface JobCard {
     id: string; // auto-generated
     garageId: string;
     customerMobile: string;
+    vehicleId: string;
     assignedTechnicianId?: string;
     complaint: string;
     internalNotes?: string; // staff-only, never shown to the customer (print/WhatsApp)

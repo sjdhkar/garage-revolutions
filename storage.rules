@@ -1,0 +1,38 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveMember(garageId) {
+      return signedIn()
+        && myProfile().status == 'active'
+        && myProfile().garageId == garageId;
+    }
+
+    function isAdminOrOwner(garageId) {
+      return isActiveMember(garageId) && myProfile().role in ['owner', 'admin'];
+    }
+
+    // Branding assets (logo, cover image, invoice logo, UPI QR) live under
+    // garages/{garageId}/branding/... — readable by any active member of that
+    // garage (needed to display branding throughout the app), writable only
+    // by that garage's owner/admin, mirroring the equivalent Firestore rule
+    // for the `garages` collection itself.
+    match /garages/{garageId}/branding/{fileName} {
+      allow read: if isActiveMember(garageId);
+      allow write: if isAdminOrOwner(garageId);
+    }
+
+    // Everything else is closed by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

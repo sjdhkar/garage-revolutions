@@ -6,11 +6,12 @@ import { GarageService } from '../../core/services/garage.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Garage } from '../../core/models/garage.model';
 import { ToastService } from '../../shared/services/toast.service';
+import { ImageUploadComponent } from '../../shared/components/image-upload/image-upload.component';
 
 @Component({
     selector: 'app-settings',
     standalone: true,
-    imports: [CommonModule, FormsModule, RouterLink],
+    imports: [CommonModule, FormsModule, RouterLink, ImageUploadComponent],
     template: `
     <div class="row mb-4 align-items-center">
       <div class="col">
@@ -23,11 +24,11 @@ import { ToastService } from '../../shared/services/toast.service';
 
     @if (!canEdit()) {
       <div class="alert alert-warning">
-        Only an owner or manager can edit garage settings. You can view them below.
+        Only an owner or admin can edit garage settings. You can view them below.
       </div>
     }
 
-    <div class="card">
+    <div class="card mb-4">
       <div class="card-header">Garage Profile</div>
       <div class="card-body">
         <div class="row">
@@ -46,12 +47,54 @@ import { ToastService } from '../../shared/services/toast.service';
         </div>
         <div class="row">
           <div class="col-md-4 mb-3">
-            <label class="form-label">UPI ID</label>
-            <input type="text" class="form-control" [(ngModel)]="form.upiId" [disabled]="!canEdit()">
-          </div>
-          <div class="col-md-4 mb-3">
             <label class="form-label">GST Number (optional)</label>
             <input type="text" class="form-control" [(ngModel)]="form.gstNumber" [disabled]="!canEdit()">
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">PAN Number (optional)</label>
+            <input type="text" class="form-control" [(ngModel)]="form.panNumber" [disabled]="!canEdit()">
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Website (optional)</label>
+            <input type="text" class="form-control" [(ngModel)]="form.website" [disabled]="!canEdit()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Branding</div>
+      <div class="card-body">
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <app-image-upload label="Logo" [currentUrl]="form.logoUrl" storagePathPrefix="garages/main/branding/logo"
+              (uploaded)="canEdit() && (form.logoUrl = $event)"></app-image-upload>
+          </div>
+          <div class="col-md-6">
+            <app-image-upload label="Cover Image" [currentUrl]="form.coverImageUrl" storagePathPrefix="garages/main/branding/cover"
+              (uploaded)="canEdit() && (form.coverImageUrl = $event)"></app-image-upload>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Primary Color</label>
+            <input type="color" class="form-control form-control-color" [(ngModel)]="form.primaryColor" [disabled]="!canEdit()">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Secondary Color</label>
+            <input type="color" class="form-control form-control-color" [(ngModel)]="form.secondaryColor" [disabled]="!canEdit()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Invoice &amp; Payment</div>
+      <div class="card-body">
+        <div class="row mb-3">
+          <div class="col-md-4 mb-3">
+            <label class="form-label">UPI ID</label>
+            <input type="text" class="form-control" [(ngModel)]="form.upiId" [disabled]="!canEdit()">
           </div>
           <div class="col-md-4 mb-3">
             <label class="form-label">Tax Rate (%)</label>
@@ -59,13 +102,24 @@ import { ToastService } from '../../shared/services/toast.service';
             <small class="text-muted">Flat GST rate applied to every invoice.</small>
           </div>
         </div>
-        @if (canEdit()) {
-          <button class="btn btn-primary" (click)="save()" [disabled]="saving">
-            {{ saving ? 'Saving...' : 'Save Changes' }}
-          </button>
-        }
+        <div class="row">
+          <div class="col-md-6">
+            <app-image-upload label="Invoice Logo" [currentUrl]="form.invoiceLogoUrl" storagePathPrefix="garages/main/branding/invoice-logo"
+              (uploaded)="canEdit() && (form.invoiceLogoUrl = $event)"></app-image-upload>
+          </div>
+          <div class="col-md-6">
+            <app-image-upload label="UPI QR Code" [currentUrl]="form.upiQrImageUrl" storagePathPrefix="garages/main/branding/upi-qr"
+              (uploaded)="canEdit() && (form.upiQrImageUrl = $event)"></app-image-upload>
+          </div>
+        </div>
       </div>
     </div>
+
+    @if (canEdit()) {
+      <button class="btn btn-primary" (click)="save()" [disabled]="saving">
+        {{ saving ? 'Saving...' : 'Save Changes' }}
+      </button>
+    }
   `
 })
 export class SettingsComponent {
@@ -75,7 +129,7 @@ export class SettingsComponent {
 
     canEdit = computed(() => {
         const role = this.authService.currentUser()?.role;
-        return role === 'owner' || role === 'manager';
+        return role === 'owner' || role === 'admin';
     });
 
     form: Partial<Garage> = {};
@@ -106,9 +160,17 @@ export class SettingsComponent {
                 upiId: this.form.upiId,
                 taxRate: this.form.taxRate,
             };
-            // Firestore rejects `undefined` field values — only include gstNumber
-            // when it actually has one.
+            // Firestore rejects `undefined` field values — only include optional
+            // fields when they actually have a value.
             if (this.form.gstNumber) updates.gstNumber = this.form.gstNumber;
+            if (this.form.panNumber) updates.panNumber = this.form.panNumber;
+            if (this.form.website) updates.website = this.form.website;
+            if (this.form.logoUrl) updates.logoUrl = this.form.logoUrl;
+            if (this.form.coverImageUrl) updates.coverImageUrl = this.form.coverImageUrl;
+            if (this.form.invoiceLogoUrl) updates.invoiceLogoUrl = this.form.invoiceLogoUrl;
+            if (this.form.upiQrImageUrl) updates.upiQrImageUrl = this.form.upiQrImageUrl;
+            if (this.form.primaryColor) updates.primaryColor = this.form.primaryColor;
+            if (this.form.secondaryColor) updates.secondaryColor = this.form.secondaryColor;
             await this.garageService.updateGarage(updates);
             this.toastService.success('Settings saved.');
         } catch {

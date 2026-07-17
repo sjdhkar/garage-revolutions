@@ -15,12 +15,14 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../configs/firebase.config';
 import { AppUser } from '../models/user.model';
 import { GarageService } from './garage.service';
+import { TeamService } from './team.service';
 import { DEFAULT_GARAGE_ID } from '../configs/garage.constants';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
     private router = inject(Router);
     private garageService = inject(GarageService);
+    private teamService = inject(TeamService);
 
     readonly currentUser = signal<AppUser | null | undefined>(undefined); // undefined = loading
     readonly isLoading = computed(() => this.currentUser() === undefined);
@@ -171,13 +173,17 @@ export class AuthService {
         provider: 'email' | 'google'
     ): Promise<AppUser> {
         const now = new Date().toISOString();
+        // A pending invite (owner pre-registering a staff member's email + role)
+        // takes priority over the default owner bootstrap — but the very first
+        // registration ever, with no invite, still needs to land as 'owner'.
+        const invite = firebaseUser.email ? await this.teamService.findInviteByEmail(firebaseUser.email) : null;
         const profile: AppUser = {
             id: firebaseUser.uid,
             name,
             email: firebaseUser.email ?? '',
             provider,
             garageId: DEFAULT_GARAGE_ID,
-            role: 'owner',
+            role: invite?.role ?? 'owner',
             status: 'active',
             emailVerified: firebaseUser.emailVerified,
             createdAt: now,
@@ -187,6 +193,7 @@ export class AuthService {
         if (provider === 'google') profile.googleId = firebaseUser.uid;
         if (firebaseUser.photoURL) profile.profileImage = firebaseUser.photoURL;
         await setDoc(doc(db!, 'users', firebaseUser.uid), profile);
+        if (invite) await this.teamService.deleteInvite(invite.id);
         return profile;
     }
 

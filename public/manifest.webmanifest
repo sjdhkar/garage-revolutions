@@ -1,6 +1,6 @@
 {
-  "name": "Revolution Moto Garage",
-  "short_name": "Revolution Moto",
+  "name": "Garage CRM",
+  "short_name": "Garage CRM",
   "display": "standalone",
   "scope": "./",
   "start_url": "./",

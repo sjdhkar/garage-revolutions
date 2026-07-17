@@ -6,6 +6,7 @@ import { JobCardService } from '../../core/services/job-card.service';
 import { InventoryService } from '../../core/services/inventory.service';
 import { InvoiceService } from '../../core/services/invoice.service';
 import { TeamService } from '../../core/services/team.service';
+import { AuthService } from '../../core/services/auth.service';
 import { exportToCsv } from '../../core/utils/csv-export';
 import { todayLocalDateString, firstOfMonthLocalDateString, isoTimestampToLocalDateString } from '../../core/utils/date-utils';
 
@@ -38,7 +39,7 @@ import { todayLocalDateString, firstOfMonthLocalDateString, isoTimestampToLocalD
       </div>
     </div>
 
-    <div class="row g-4 mb-4">
+    <div class="row g-4 mb-4" *ngIf="canViewRevenue()">
       <div class="col-md-3">
         <div class="card h-100"><div class="card-body">
           <div class="text-muted small">Revenue (invoiced)</div>
@@ -67,7 +68,7 @@ import { todayLocalDateString, firstOfMonthLocalDateString, isoTimestampToLocalD
 
     <div class="row g-4 mb-4">
       <!-- Pending Payments -->
-      <div class="col-md-6">
+      <div class="col-md-6" *ngIf="canViewPendingPayments()">
         <div class="card h-100">
           <div class="card-header d-flex justify-content-between align-items-center">
             Pending Payments
@@ -106,7 +107,7 @@ import { todayLocalDateString, firstOfMonthLocalDateString, isoTimestampToLocalD
       </div>
     </div>
 
-    <div class="row g-4 mb-4">
+    <div class="row g-4 mb-4" *ngIf="canViewOwnerReports()">
       <!-- Inventory Valuation -->
       <div class="col-md-6">
         <div class="card h-100">
@@ -145,7 +146,7 @@ import { todayLocalDateString, firstOfMonthLocalDateString, isoTimestampToLocalD
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" *ngIf="canViewRevenue()">
       <div class="card-header d-flex justify-content-between align-items-center">
         Invoices in Range
         <button class="btn btn-sm btn-outline-secondary" (click)="exportInvoices()">Export CSV</button>
@@ -173,6 +174,22 @@ export class ReportsComponent {
     private inventoryService = inject(InventoryService);
     private invoiceService = inject(InvoiceService);
     private teamService = inject(TeamService);
+    private authService = inject(AuthService);
+
+    canViewRevenue = computed(() => {
+        const role = this.authService.currentUser()?.role;
+        return role === 'owner' || role === 'admin' || role === 'accountant';
+    });
+
+    canViewPendingPayments = computed(() => {
+        const role = this.authService.currentUser()?.role;
+        return role === 'owner' || role === 'admin' || role === 'accountant' || role === 'receptionist';
+    });
+
+    canViewOwnerReports = computed(() => {
+        const role = this.authService.currentUser()?.role;
+        return role === 'owner' || role === 'admin';
+    });
 
     fromDate = firstOfMonthLocalDateString();
     toDate = todayLocalDateString();

@@ -6,7 +6,7 @@ import { DEFAULT_GARAGE_ID } from '../configs/garage.constants';
 import { AuthService } from './auth.service';
 import { calculateBillTotals } from '../utils/billing-calculations';
 import {
-    collection, query, where, orderBy, onSnapshot, doc, setDoc, getDocs, runTransaction
+    collection, query, where, orderBy, onSnapshot, doc, setDoc, updateDoc, getDocs, runTransaction
 } from 'firebase/firestore';
 
 @Injectable({ providedIn: 'root' })
@@ -30,8 +30,14 @@ export class InvoiceService {
         });
     }
 
+    /** The active (non-voided) invoice for a job card, if any — a voided invoice no longer blocks re-invoicing. */
     getInvoiceForJobCard(jobCardId: string): Invoice | undefined {
-        return this.invoices().find(inv => inv.jobCardId === jobCardId);
+        return this.invoices().find(inv => inv.jobCardId === jobCardId && !inv.voided);
+    }
+
+    /** Only permitted before any payment has been recorded — see firestore.rules for the enforced boundary. */
+    async voidInvoice(invoiceId: string): Promise<void> {
+        await updateDoc(doc(db!, 'invoices', invoiceId), { voided: true });
     }
 
     /** Creates an immutable invoice snapshot from a job card's current parts/services. */

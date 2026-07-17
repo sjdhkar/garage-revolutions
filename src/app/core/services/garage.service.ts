@@ -11,24 +11,36 @@ export class GarageService {
 
     private listening = false;
 
-    /** Idempotent: creates the single garage doc with sensible defaults if it doesn't exist yet. */
+    /** Idempotent: creates the single garage doc with blank defaults if it doesn't exist yet.
+     * A genuinely new garage stays blank on purpose — the Setup Wizard is what fills these in,
+     * so a fresh install never silently inherits a stranger's business name/address/etc. */
     async ensureGarageExists(): Promise<void> {
         const docRef = doc(db!, 'garages', this.garageId);
         const snap = await getDoc(docRef);
         if (!snap.exists()) {
             const defaults: Garage = {
                 id: this.garageId,
-                name: 'Revolution Moto Garage',
-                address: 'Beside Hyundai Showroom, Near Kothari Honda, Khamgaon Road, Buldana',
-                phone: '9209018909',
-                upiId: 'gokuleshmarathe5-2@okaxis',
+                name: '',
+                address: '',
+                phone: '',
+                upiId: '',
                 taxRate: 18,
+                setupCompleted: false,
                 createdAt: new Date().toISOString(),
             };
             await setDoc(docRef, defaults);
-        } else if (snap.data()?.['taxRate'] === undefined) {
-            // Backfill for garage docs created before Phase 10 added taxRate.
-            await setDoc(docRef, { taxRate: 18 }, { merge: true });
+        } else {
+            const data = snap.data();
+            const backfill: Partial<Garage> = {};
+            if (data?.['taxRate'] === undefined) backfill.taxRate = 18;
+            // A garage doc that predates the wizard already has real values filled
+            // in (e.g. the original hardcoded bootstrap) — treat it as already
+            // configured rather than force-redirecting an existing install through
+            // the wizard the first time this field appears.
+            if (data?.['setupCompleted'] === undefined) backfill.setupCompleted = true;
+            if (Object.keys(backfill).length > 0) {
+                await setDoc(docRef, backfill, { merge: true });
+            }
         }
         this.startListening();
     }

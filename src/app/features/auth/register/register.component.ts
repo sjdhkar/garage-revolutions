@@ -14,7 +14,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <div class="auth-logo">
                 <div class="logo-icon">🔧</div>
                 <h1>Create Account</h1>
-                <p>Join Revolution Moto Garage</p>
+                <p>Join Garage CRM</p>
             </div>
 
             @if (errorMessage()) {
@@ -28,7 +28,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 <div class="form-group">
                     <label>Full Name</label>
                     <input type="text" class="form-control" placeholder="Your full name"
-                        [(ngModel)]="name" name="name" required />
+                        [(ngModel)]="name" name="name" autocomplete="off" required />
                 </div>
                 <div class="form-group">
                     <label>Email Address</label>

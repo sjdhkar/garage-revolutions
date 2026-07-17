@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { JobCardService } from '../../core/services/job-card.service';
 import { CustomerService } from '../../core/services/customer.service';
+import { VehicleService } from '../../core/services/vehicle.service';
 import { WhatsappService } from '../../core/services/whatsapp.service';
 import { AuthService } from '../../core/services/auth.service';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
@@ -66,7 +67,7 @@ const PAGE_SIZE = 20;
               <td>{{ job.id }}</td>
               <td>{{ job.createdAt | date:'shortDate' }}</td>
               <td>{{ job.customerMobile }}</td>
-              <td>{{ bikeInfo(job.customerMobile) }}</td>
+              <td>{{ bikeInfo(job.vehicleId) }}</td>
               <td>
                 <app-status-badge [status]="job.status"></app-status-badge>
               </td>
@@ -90,6 +91,7 @@ const PAGE_SIZE = 20;
 export class JobCardListComponent {
   private jobCardService = inject(JobCardService);
   private customerService = inject(CustomerService);
+  private vehicleService = inject(VehicleService);
   private whatsappService = inject(WhatsappService);
   private authService = inject(AuthService);
 
@@ -106,13 +108,14 @@ export class JobCardListComponent {
 
     return this.jobCardService.jobCards().filter(job => {
       const customer = this.customerService.getCustomer(job.customerMobile);
+      const vehicle = this.vehicleService.getVehicle(job.vehicleId);
       const matchesQuery =
         job.customerMobile.includes(query) ||
         job.id.toLowerCase().includes(query) ||
         job.complaint.toLowerCase().includes(query) ||
         !!customer?.name.toLowerCase().includes(query) ||
-        !!customer?.bikeNumber.toLowerCase().includes(query) ||
-        !!customer?.bikeModel.toLowerCase().includes(query);
+        !!vehicle?.bikeNumber.toLowerCase().includes(query) ||
+        !!vehicle?.bikeModel.toLowerCase().includes(query);
 
       const matchesStatus = status === 'ALL' || job.status === status;
 
@@ -125,9 +128,9 @@ export class JobCardListComponent {
     return this.filteredJobs().slice(start, start + this.pageSize);
   });
 
-  bikeInfo(customerMobile: string): string {
-    const customer = this.customerService.getCustomer(customerMobile);
-    return customer ? `${customer.bikeModel} - ${customer.bikeNumber}` : '—';
+  bikeInfo(vehicleId: string): string {
+    const vehicle = this.vehicleService.getVehicle(vehicleId);
+    return vehicle ? `${vehicle.bikeModel} - ${vehicle.bikeNumber}` : '—';
   }
 
   quickWhatsapp(job: any) {

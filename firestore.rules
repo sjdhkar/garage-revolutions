@@ -22,14 +22,14 @@ service cloud.firestore {
       return myProfile().role;
     }
 
-    function isManagerOrOwner(garageId) {
-      return isActiveMember(garageId) && myRole() in ['owner', 'manager'];
+    function isAdminOrOwner(garageId) {
+      return isActiveMember(garageId) && myRole() in ['owner', 'admin'];
     }
 
     // ── users ──────────────────────────────────────────────────────────────
     // A user can always read/create/update their own profile doc (this is how
     // registration and self-service profile edits work). Reading OTHER users'
-    // docs, or changing role/status, requires being an active owner/manager of
+    // docs, or changing role/status, requires being an active owner/admin of
     // the same garage — closing the gap where the old blanket rule let any
     // authenticated user, including a disabled one, read or write anything.
     match /users/{uid} {
@@ -38,15 +38,15 @@ service cloud.firestore {
       // A user may freely update their own profile EXCEPT role/status/garageId —
       // otherwise a self-registered user could grant themselves a higher role or
       // reactivate a suspended/disabled account via a direct Firestore write.
-      // Changing those three fields requires an owner/manager of that garage.
+      // Changing those three fields requires an owner/admin of that garage.
       allow update: if signedIn() && (
         (request.auth.uid == uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.status == resource.data.status
           && request.resource.data.garageId == resource.data.garageId)
-        || isManagerOrOwner(resource.data.garageId)
+        || isAdminOrOwner(resource.data.garageId)
       );
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
     }
 
     // ── garages ────────────────────────────────────────────────────────────
@@ -58,12 +58,28 @@ service cloud.firestore {
       // block an arbitrary signed-in user from creating garage docs for a
       // garage they don't belong to, without needing the doc to exist yet.
       allow create: if signedIn() && myProfile().garageId == garageId;
-      allow update: if isManagerOrOwner(garageId);
+      allow update: if isAdminOrOwner(garageId);
       allow delete: if false;
+
+      // Staff invites are looked up by a freshly-authenticated user who has NO
+      // profile doc yet (registration hasn't created one), so isActiveMember()/
+      // myProfile() can't be used for the read check. Invite doc IDs are the
+      // invite's own email address, so a `get` can be matched directly against
+      // the caller's verified auth-token email — no query, no profile needed.
+      // Only an established owner/admin can create/update invites. Delete is
+      // also allowed to the invited person themselves, matched the same way,
+      // since registration consumes (deletes) its own invite right after the
+      // new — possibly non-admin — profile is created.
+      match /staffInvites/{inviteId} {
+        allow get: if signedIn() && resource.data.email == request.auth.token.email;
+        allow create, update: if isAdminOrOwner(garageId);
+        allow delete: if isAdminOrOwner(garageId)
+          || (signedIn() && resource.data.email == request.auth.token.email);
+      }
 
       match /{subcollection=**} {
         allow read: if isActiveMember(garageId);
-        allow write: if isManagerOrOwner(garageId);
+        allow write: if isAdminOrOwner(garageId);
       }
     }
 
@@ -73,14 +89,26 @@ service cloud.firestore {
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId;
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
+    }
+
+    // ── vehicles ─────────────────────────────────────────────────────────────
+    match /vehicles/{vehicleId} {
+      allow read: if isActiveMember(resource.data.garageId);
+      allow create: if isActiveMember(request.resource.data.garageId);
+      allow update: if isActiveMember(resource.data.garageId)
+        && request.resource.data.garageId == resource.data.garageId;
+      allow delete: if isAdminOrOwner(resource.data.garageId);
     }
 
     // ── jobCards ───────────────────────────────────────────────────────────
     // Technicians only ever see/edit job cards assigned to them; every other
-    // active role (owner/manager/service_advisor/accountant) sees the whole
+    // active role (owner/admin/receptionist/accountant) sees the whole
     // garage's job cards. This is enforced here, not just hidden in the UI,
     // so a technician can't bypass the boundary by querying Firestore directly.
+    // (Hiding *pricing* from a technician on their own assigned job card is a
+    // separate, UI-only trust boundary — see job-card-detail.component.ts's
+    // canViewBilling — since Firestore rules are document-level, not field-level.)
     match /jobCards/{jobCardId} {
       allow read: if isActiveMember(resource.data.garageId)
         && (myRole() != 'technician' || resource.data.assignedTechnicianId == request.auth.uid);
@@ -88,7 +116,7 @@ service cloud.firestore {
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId
         && (myRole() != 'technician' || resource.data.assignedTechnicianId == request.auth.uid);
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
 
       // Subcollections (e.g. statusHistory) follow the same assigned-technician
       // boundary as the parent job card itself — a technician can write a status
@@ -108,7 +136,7 @@ service cloud.firestore {
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId;
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
 
       // Stock movement audit trail: any active member of the garage can log a
       // movement (adding/removing a part on a job card does this automatically),
@@ -126,7 +154,7 @@ service cloud.firestore {
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId;
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
     }
 
     // ── serviceCatalog ───────────────────────────────────────────────────────
@@ -135,7 +163,7 @@ service cloud.firestore {
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId;
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
     }
 
     // ── invoices ─────────────────────────────────────────────────────────────
@@ -144,14 +172,25 @@ service cloud.firestore {
     // payments against it, but the snapshot itself is never edited or deleted
     // once issued — only `amountPaid`/`paymentStatus` change, and only via the
     // recordPayment transaction (still an `update`, so covered by allow update).
+    // The one other permitted mutation is voiding: an owner/admin may flip
+    // `voided` to true (never back) so the job card can be re-edited and a
+    // fresh invoice generated — but only before any payment has been recorded,
+    // so a voided invoice never hides money that already changed hands.
     match /invoices/{invoiceId} {
       allow read: if isActiveMember(resource.data.garageId);
       allow create: if isActiveMember(request.resource.data.garageId);
-      allow update: if isActiveMember(resource.data.garageId)
+      allow update: if (isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId
         && request.resource.data.invoiceNumber == resource.data.invoiceNumber
         && request.resource.data.lineItems == resource.data.lineItems
-        && request.resource.data.total == resource.data.total;
+        && request.resource.data.total == resource.data.total)
+        || (isAdminOrOwner(resource.data.garageId)
+          && resource.data.amountPaid == 0
+          && request.resource.data.voided == true
+          && request.resource.data.lineItems == resource.data.lineItems
+          && request.resource.data.total == resource.data.total
+          && request.resource.data.amountPaid == resource.data.amountPaid
+          && request.resource.data.paymentStatus == resource.data.paymentStatus);
       allow delete: if false;
 
       match /payments/{paymentId} {
@@ -167,19 +206,15 @@ service cloud.firestore {
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update: if isActiveMember(resource.data.garageId)
         && request.resource.data.garageId == resource.data.garageId;
-      allow delete: if isManagerOrOwner(resource.data.garageId);
+      allow delete: if isAdminOrOwner(resource.data.garageId);
     }
 
     // ── activityLogs ─────────────────────────────────────────────────────────
-    // Append-only: any active member can write a log entry (including an
-    // unauthenticated-adjacent error before role is fully known — the
-    // LoggingService still requires signedIn() via isActiveMember below since
-    // an actual write needs an auth context to attribute the entry to a uid),
-    // but entries are never edited or deleted, and only an owner/manager can
-    // read the log (it may contain stack traces / internal detail not meant
-    // for every role).
+    // Append-only: any active member can write a log entry, but entries are
+    // never edited or deleted, and only an owner/admin can read the log (it
+    // may contain stack traces / internal detail not meant for every role).
     match /activityLogs/{logId} {
-      allow read: if isManagerOrOwner(resource.data.garageId);
+      allow read: if isAdminOrOwner(resource.data.garageId);
       allow create: if isActiveMember(request.resource.data.garageId);
       allow update, delete: if false;
     }

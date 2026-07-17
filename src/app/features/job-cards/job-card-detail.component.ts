@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { JobCardService } from '../../core/services/job-card.service';
 import { CustomerService } from '../../core/services/customer.service';
+import { VehicleService } from '../../core/services/vehicle.service';
 import { InventoryService } from '../../core/services/inventory.service';
 import { WhatsappService } from '../../core/services/whatsapp.service';
 import { GarageService } from '../../core/services/garage.service';
@@ -39,7 +40,7 @@ import { ToastService } from '../../shared/services/toast.service';
           <button *ngIf="showWhatsapp()" class="btn btn-success" (click)="sendWhatsapp()">
             <i class="bi bi-whatsapp"></i> Status Update
           </button>
-          <button *ngIf="showWhatsapp()" class="btn btn-outline-success ms-2" (click)="sendBillWhatsapp()">
+          <button *ngIf="showWhatsapp() && canViewBilling()" class="btn btn-outline-success ms-2" (click)="sendBillWhatsapp()">
             <i class="bi bi-receipt"></i> Send Bill
           </button>
         </div>
@@ -48,7 +49,7 @@ import { ToastService } from '../../shared/services/toast.service';
       <!-- Print-Only Header -->
       <div class="d-none d-print-block text-center mb-4 pb-2 border-bottom border-dark">
         <div class="mb-3">
-          <img src="logo.png" [alt]="garageService.garage()?.name" style="max-height: 100px; width: auto;">
+          <img [src]="garageService.garage()?.invoiceLogoUrl || garageService.garage()?.logoUrl || 'logo.png'" [alt]="garageService.garage()?.name" style="max-height: 100px; width: auto;">
         </div>
         <div class="d-flex justify-content-between align-items-center mt-3">
           <div class="text-start">
@@ -97,7 +98,7 @@ import { ToastService } from '../../shared/services/toast.service';
             <div class="col-md-6 col-6 text-end">
               <h5 class="mb-0">{{ customer()?.name }}</h5>
               <div class="text-muted">{{ customer()?.mobile }}</div>
-              <div class="fw-bold">{{ customer()?.bikeModel }} - {{ customer()?.bikeNumber }}</div>
+              <div class="fw-bold">{{ vehicle()?.bikeModel }} - {{ vehicle()?.bikeNumber }}</div>
             </div>
           </div>
         </div>
@@ -115,13 +116,17 @@ import { ToastService } from '../../shared/services/toast.service';
               </div>
               
               <h6 class="mt-3 border-bottom pb-1 mb-2">Services Done (कामे)</h6>
-              <div class="d-print-none bg-light p-3 rounded mb-2">
+              <div class="alert alert-warning d-print-none py-2 px-3 mb-2" *ngIf="hasActiveInvoice()">
+                Invoice #{{ invoice()?.invoiceNumber }} has been generated — parts and services are locked.
+                @if (canVoidInvoice()) { Void the invoice below to make changes. }
+              </div>
+              <div class="d-print-none bg-light p-3 rounded mb-2" *ngIf="!hasActiveInvoice()">
                 <div class="row g-2 mb-2">
                   <div class="col-md-8">
                     <select class="form-select" [(ngModel)]="selectedServiceId" (change)="onServiceSelect()">
                       <option value="">Select from catalog...</option>
                       <option *ngFor="let svc of activeServiceCatalog()" [value]="svc.id">
-                        {{ svc.name }} ({{ svc.category }}) - ₹{{ svc.standardPrice }}
+                        {{ svc.name }} ({{ svc.category }}){{ canViewBilling() ? ' - ₹' + svc.standardPrice : '' }}
                       </option>
                     </select>
                   </div>
@@ -129,7 +134,7 @@ import { ToastService } from '../../shared/services/toast.service';
                     <button class="btn btn-primary w-100" [disabled]="!selectedServiceId" (click)="addCatalogService()">Add</button>
                   </div>
                 </div>
-                <div class="input-group">
+                <div class="input-group" *ngIf="canViewBilling()">
                   <input type="text" class="form-control w-50" placeholder="Or a custom one-off item" #serviceDescInput>
                   <input type="number" class="form-control w-25" placeholder="Cost" #serviceCostInput>
                   <button class="btn btn-outline-primary" (click)="addService(serviceDescInput.value, serviceCostInput.value); serviceDescInput.value=''; serviceCostInput.value=''">Add Custom</button>
@@ -140,8 +145,8 @@ import { ToastService } from '../../shared/services/toast.service';
                 <li *ngFor="let s of job()?.services; let i = index" class="list-group-item d-flex justify-content-between align-items-center ps-0 py-1">
                   <span>{{ s.description }}</span>
                   <div>
-                    <span class="fw-bold me-3">₹{{ s.cost }}</span>
-                    <button class="btn btn-sm btn-link text-danger d-print-none" (click)="removeService(i)">×</button>
+                    <span class="fw-bold me-3" *ngIf="canViewBilling()">₹{{ s.cost }}</span>
+                    <button class="btn btn-sm btn-link text-danger d-print-none" *ngIf="!hasActiveInvoice()" (click)="removeService(i)">×</button>
                   </div>
                 </li>
               </ul>
@@ -152,18 +157,18 @@ import { ToastService } from '../../shared/services/toast.service';
           <div class="card mb-3 d-print-border-0">
              <div class="card-header d-flex justify-content-between align-items-center d-print-none">
                <span>Parts Used (पार्ट्स)</span>
-               <span class="badge bg-secondary">Total Parts: ₹{{ partsTotal() }}</span>
+               <span class="badge bg-secondary" *ngIf="canViewBilling()">Total Parts: ₹{{ partsTotal() }}</span>
              </div>
              <div class="card-body p-print-0">
                <h6 class="d-none d-print-block border-bottom pb-1 mb-2">Parts Used (पार्ट्स)</h6>
-               <div class="d-print-none bg-light p-3 rounded mb-3">
+               <div class="d-print-none bg-light p-3 rounded mb-3" *ngIf="!hasActiveInvoice()">
                  <h6>Add Part</h6>
                  <div class="row g-2">
                    <div class="col-md-6">
                      <select class="form-select" [(ngModel)]="selectedPartId" (change)="onPartSelect()">
                        <option value="">Select Part...</option>
                        <option *ngFor="let item of activeInventory()" [value]="item.id">
-                         {{ item.name }} (Stock: {{ item.quantity }}) - ₹{{ item.sellingPrice }}
+                         {{ item.name }} (Stock: {{ item.quantity }}){{ canViewBilling() ? ' - ₹' + item.sellingPrice : '' }}
                        </option>
                      </select>
                    </div>
@@ -181,8 +186,8 @@ import { ToastService } from '../../shared/services/toast.service';
                    <tr class="border-bottom">
                      <th>Item</th>
                      <th class="text-end">Qty</th>
-                     <th class="text-end">Price</th>
-                     <th class="text-end">Total</th>
+                     <th class="text-end" *ngIf="canViewBilling()">Price</th>
+                     <th class="text-end" *ngIf="canViewBilling()">Total</th>
                      <th class="d-print-none"></th>
                    </tr>
                  </thead>
@@ -190,10 +195,10 @@ import { ToastService } from '../../shared/services/toast.service';
                    <tr *ngFor="let p of job()?.parts; let i = index">
                      <td>{{ p.name }}</td>
                      <td class="text-end">{{ p.quantity }}</td>
-                     <td class="text-end">₹{{ p.price }}</td>
-                     <td class="text-end">₹{{ p.price * p.quantity }}</td>
+                     <td class="text-end" *ngIf="canViewBilling()">₹{{ p.price }}</td>
+                     <td class="text-end" *ngIf="canViewBilling()">₹{{ p.price * p.quantity }}</td>
                      <td class="d-print-none text-end">
-                       <button class="btn btn-sm text-danger" (click)="removePart(i)">×</button>
+                       <button class="btn btn-sm text-danger" *ngIf="!hasActiveInvoice()" (click)="removePart(i)">×</button>
                      </td>
                    </tr>
                  </tbody>
@@ -204,7 +209,7 @@ import { ToastService } from '../../shared/services/toast.service';
 
         <!-- Summary & Billing Side -->
         <div class="col-md-4 col-print-4">
-          <div class="card bg-light border-0 d-print-bg-white">
+          <div class="card bg-light border-0 d-print-bg-white" *ngIf="canViewBilling()">
             <div class="card-body p-print-0">
               <h5 class="card-title border-bottom pb-2 mb-3">Billing Summary</h5>
               <div class="d-flex justify-content-between mb-2">
@@ -223,7 +228,7 @@ import { ToastService } from '../../shared/services/toast.service';
                 <span>Total Bill:</span>
                 <span>₹{{ billTotal() }}</span>
               </div>
-              
+
               <!-- Invoice / Payment Ledger -->
               <div class="d-print-none" *ngIf="!invoice()">
                 <label class="form-label">Discount (optional)</label>
@@ -263,6 +268,10 @@ import { ToastService } from '../../shared/services/toast.service';
                     <span>₹{{ p.amount }} — {{ p.paidAt | date:'short' }}</span>
                   </li>
                 </ul>
+
+                <button class="btn btn-outline-danger btn-sm w-100 mt-2" *ngIf="canVoidInvoice()" (click)="voidInvoice()">
+                  Void Invoice (edit parts/services again)
+                </button>
               </div>
 
                <!-- Print Only Payment Status -->
@@ -338,6 +347,7 @@ export class JobCardDetailComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private jobService = inject(JobCardService);
   private customerService = inject(CustomerService);
+  private vehicleService = inject(VehicleService);
   private inventoryService = inject(InventoryService);
   private whatsappService = inject(WhatsappService);
   private toastService = inject(ToastService);
@@ -363,7 +373,13 @@ export class JobCardDetailComponent implements OnInit {
     return j ? this.customerService.getCustomer(j.customerMobile) : null;
   });
 
+  vehicle = computed(() => {
+    const j = this.job();
+    return j ? this.vehicleService.getVehicle(j.vehicleId) : null;
+  });
+
   canAssignTechnician = computed(() => this.authService.currentUser()?.role !== 'technician');
+  canViewBilling = computed(() => this.authService.currentUser()?.role !== 'technician');
 
   assignedTechnicianName = computed(() => {
     const techId = this.job()?.assignedTechnicianId;
@@ -396,6 +412,14 @@ export class JobCardDetailComponent implements OnInit {
   invoice = computed(() => {
     const j = this.job();
     return j ? this.invoiceService.getInvoiceForJobCard(j.id) : undefined;
+  });
+
+  hasActiveInvoice = computed(() => !!this.invoice());
+
+  canVoidInvoice = computed(() => {
+    const role = this.authService.currentUser()?.role;
+    const inv = this.invoice();
+    return (role === 'owner' || role === 'admin') && !!inv && inv.amountPaid === 0;
   });
 
   discountInput = 0;
@@ -457,6 +481,17 @@ export class JobCardDetailComponent implements OnInit {
       this.toastService.success('Invoice generated.');
     } catch {
       this.toastService.error('Could not generate the invoice. Please try again.');
+    }
+  }
+
+  async voidInvoice() {
+    const inv = this.invoice();
+    if (!inv) return;
+    try {
+      await this.invoiceService.voidInvoice(inv.id);
+      this.toastService.success('Invoice voided. You can now edit parts/services and generate a fresh invoice.');
+    } catch {
+      this.toastService.error('Could not void the invoice. Please try again.');
     }
   }
 
@@ -578,19 +613,20 @@ export class JobCardDetailComponent implements OnInit {
     if (!j || !c) return;
 
     const garageName = this.garageService.garage()?.name ?? 'the garage';
+    const bikeNumber = this.vehicle()?.bikeNumber ?? 'your bike';
     let msg = '';
     switch (j.status) {
-      case 'RECEIVED': msg = `Hi ${c.name}, welcome to ${garageName}. We received your bike ${c.bikeNumber}. Job Card: ${j.id}.`; break;
-      case 'IN_PROGRESS': msg = `Hi ${c.name}, work has started on your bike ${c.bikeNumber} at ${garageName}.`; break;
-      case 'WAITING_PARTS': msg = `Hi ${c.name}, we are waiting for parts for your bike ${c.bikeNumber} at ${garageName}.`; break;
+      case 'RECEIVED': msg = `Hi ${c.name}, welcome to ${garageName}. We received your bike ${bikeNumber}. Job Card: ${j.id}.`; break;
+      case 'IN_PROGRESS': msg = `Hi ${c.name}, work has started on your bike ${bikeNumber} at ${garageName}.`; break;
+      case 'WAITING_PARTS': msg = `Hi ${c.name}, we are waiting for parts for your bike ${bikeNumber} at ${garageName}.`; break;
       case 'COMPLETED': {
         const services = j.services.length ? '\nServices:\n' + j.services.map(s => `• ${s.description}: ₹${s.cost}`).join('\n') : '';
         const parts = j.parts.length ? '\nSpares:\n' + j.parts.map(p => `• ${p.name} (${p.quantity}): ₹${p.price * p.quantity}`).join('\n') : '';
-        msg = `Hi ${c.name}, your bike ${c.bikeNumber} is ready at ${garageName}!\n${services}${parts}\n\nTotal Bill: ₹${this.billTotal()}.`;
+        msg = `Hi ${c.name}, your bike ${bikeNumber} is ready at ${garageName}!\n${services}${parts}\n\nTotal Bill: ₹${this.billTotal()}.`;
         break;
       }
       case 'DELIVERED': msg = `Hi ${c.name}, thank you for visiting ${garageName}!`; break;
-      default: msg = `Update for your bike ${c.bikeNumber} from ${garageName}: Status is ${j.status}.`;
+      default: msg = `Update for your bike ${bikeNumber} from ${garageName}: Status is ${j.status}.`;
     }
 
     this.whatsappService.openChat(c.mobile, msg);
@@ -609,7 +645,8 @@ export class JobCardDetailComponent implements OnInit {
     msg += `Job No: ${j.id}\n`;
     msg += `Date: ${new Date().toLocaleDateString()}\n`;
     msg += `Customer: ${c.name} (${c.mobile})\n`;
-    msg += `Vehicle: ${c.bikeModel} - ${c.bikeNumber}\n`;
+    const v = this.vehicle();
+    msg += `Vehicle: ${v?.bikeModel ?? ''} - ${v?.bikeNumber ?? ''}\n`;
     msg += `--------------------------------\n`;
 
     if (j.complaint) msg += `*Complaint:* ${j.complaint}\n\n`;

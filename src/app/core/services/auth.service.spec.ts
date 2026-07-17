@@ -50,11 +50,17 @@ vi.mock('../configs/firebase.config', () => ({
 
 import { AuthService } from './auth.service';
 import { GarageService } from './garage.service';
+import { TeamService } from './team.service';
 
 describe('AuthService registration race', () => {
+    let findInviteByEmail: ReturnType<typeof vi.fn>;
+    let deleteInvite: ReturnType<typeof vi.fn>;
+
     beforeEach(() => {
         firestoreDocs = {};
         authStateCallback = null;
+        findInviteByEmail = vi.fn(async () => null);
+        deleteInvite = vi.fn(async () => { });
         TestBed.configureTestingModule({
             providers: [
                 provideRouter([]),
@@ -64,6 +70,7 @@ describe('AuthService registration race', () => {
                 // leaving the real GarageService (and its real Firestore calls) in
                 // place. A DI override always wins regardless of import order.
                 { provide: GarageService, useValue: { ensureGarageExists: vi.fn(async () => { }) } },
+                { provide: TeamService, useValue: { findInviteByEmail, deleteInvite } },
             ],
         });
     });
@@ -85,5 +92,25 @@ describe('AuthService registration race', () => {
         const service = TestBed.inject(AuthService);
         await service.registerWithEmail('Another User', 'another@example.com', 'password123');
         expect(service.currentUser()).not.toBeNull();
+    });
+
+    it('assigns the invited role (not owner) and consumes the invite when a matching staff invite exists', async () => {
+        findInviteByEmail.mockResolvedValue({ id: 'new@example.com', email: 'new@example.com', role: 'technician', invitedBy: 'owner-uid', createdAt: '2026-01-01' });
+
+        const service = TestBed.inject(AuthService);
+        await service.registerWithEmail('New User', 'new@example.com', 'password123');
+
+        const profile = service.currentUser();
+        expect(profile?.role).toBe('technician');
+        expect(deleteInvite).toHaveBeenCalledWith('new@example.com');
+    });
+
+    it('preserves the default owner bootstrap when no invite matches the registering email', async () => {
+        const service = TestBed.inject(AuthService);
+        await service.registerWithEmail('New User', 'new@example.com', 'password123');
+
+        const profile = service.currentUser();
+        expect(profile?.role).toBe('owner');
+        expect(deleteInvite).not.toHaveBeenCalled();
     });
 });

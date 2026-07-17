@@ -49,3 +49,11 @@ Thumbs.db
 /release
 /dist
 firestore-debug.log
+
+# Local one-off scripts (scripts/wipe-test-data.js) get their own node_modules
+# and must never have a service account key committed alongside them.
+/scripts/node_modules
+/scripts/package.json
+/scripts/package-lock.json
+/scripts/*-key.json
+/scripts/*serviceAccount*.json

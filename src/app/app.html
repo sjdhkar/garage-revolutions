@@ -7,7 +7,7 @@
   <!-- App shell for authenticated users -->
   <header class="app-header d-print-none">
     <div class="header-brand">
-      <img src="logo.png" alt="Logo" class="header-logo" />
+      <img [src]="garageService.garage()?.logoUrl || 'logo.png'" alt="Logo" class="header-logo" />
       <span class="header-title">{{ garageService.garage()?.name || 'Garage CRM' }}</span>
     </div>
     <div class="header-user">
@@ -20,6 +20,9 @@
         </div>
       }
       <span class="user-name">{{ authService.currentUser()?.name }}</span>
+      @if (canManageTeam()) {
+        <a routerLink="/team" class="btn-settings" title="Team"><i class="bi bi-people"></i></a>
+      }
       <a routerLink="/settings" class="btn-settings" title="Settings"><i class="bi bi-gear"></i></a>
       <button class="btn-logout" (click)="logout()">Sign out</button>
     </div>

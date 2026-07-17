@@ -14,7 +14,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <!-- Logo -->
             <div class="auth-logo">
                 <div class="logo-icon">🔧</div>
-                <h1>Revolution Moto</h1>
+                <h1>Garage CRM</h1>
                 <p>Garage Management System</p>
             </div>
 

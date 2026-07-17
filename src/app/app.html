@@ -1,1 +1,32 @@
-<router-outlet />
+@if (authService.isLoading()) {
+  <!-- Splash loader while auth resolves -->
+  <div class="splash-loader">
+    <div class="spin"></div>
+  </div>
+} @else if (authService.isAuthenticated()) {
+  <!-- App shell for authenticated users -->
+  <header class="app-header d-print-none">
+    <div class="header-brand">
+      <img src="logo.png" alt="Logo" class="header-logo" />
+      <span class="header-title">Revolution Moto</span>
+    </div>
+    <div class="header-user">
+      <span class="user-role-badge">{{ authService.currentUser()?.role | titlecase }}</span>
+      @if (authService.currentUser()?.profileImage) {
+        <img [src]="authService.currentUser()?.profileImage" class="user-avatar" alt="avatar"/>
+      } @else {
+        <div class="user-avatar-placeholder">
+          {{ authService.currentUser()?.name?.charAt(0)?.toUpperCase() }}
+        </div>
+      }
+      <span class="user-name">{{ authService.currentUser()?.name }}</span>
+      <button class="btn-logout" (click)="logout()">Sign out</button>
+    </div>
+  </header>
+  <div class="container pb-5">
+    <router-outlet></router-outlet>
+  </div>
+} @else {
+  <!-- Auth pages (no shell) -->
+  <router-outlet></router-outlet>
+}

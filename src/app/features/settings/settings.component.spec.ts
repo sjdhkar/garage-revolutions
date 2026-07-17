@@ -52,7 +52,6 @@ describe('SettingsComponent', () => {
         const { component, updateGarage } = buildComponent('owner');
         component.form.name = 'Updated Garage';
         component.form.primaryColor = '#6366f1';
-        component.form.upiQrImageUrl = 'https://example.com/qr.png';
         component.form.panNumber = 'ABCDE1234F';
 
         await component.save();
@@ -60,8 +59,24 @@ describe('SettingsComponent', () => {
         expect(updateGarage).toHaveBeenCalledWith(expect.objectContaining({
             name: 'Updated Garage',
             primaryColor: '#6366f1',
-            upiQrImageUrl: 'https://example.com/qr.png',
             panNumber: 'ABCDE1234F',
         }));
+    });
+
+    it('qrPreviewUrl generates a UPI QR link from the form UPI ID with no upload involved', () => {
+        const { component } = buildComponent('owner');
+        component.form.upiId = 'garage@upi';
+        component.form.name = 'Test Garage';
+
+        const url = component.qrPreviewUrl()!;
+
+        expect(url).toContain('api.qrserver.com');
+        expect(decodeURIComponent(url.split('data=')[1])).toContain('garage%40upi');
+    });
+
+    it('qrPreviewUrl is null when there is no UPI ID yet', () => {
+        const { component } = buildComponent('owner');
+        component.form.upiId = '';
+        expect(component.qrPreviewUrl()).toBeNull();
     });
 });

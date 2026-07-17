@@ -63,4 +63,28 @@ describe('ImageUploadComponent', () => {
         expect(toastServiceStub.error).toHaveBeenCalled();
         expect(component.uploading()).toBe(false);
     });
+
+    it('applyUrl emits a pasted URL with no Storage upload involved, then clears the input', () => {
+        const { component, storageServiceStub } = buildComponent();
+        let emitted: string | undefined;
+        component.uploaded.subscribe(url => emitted = url);
+        component.urlInput = 'https://example.com/hosted-logo.png';
+
+        component.applyUrl();
+
+        expect(emitted).toBe('https://example.com/hosted-logo.png');
+        expect(component.urlInput).toBe('');
+        expect(storageServiceStub.uploadFile).not.toHaveBeenCalled();
+    });
+
+    it('applyUrl does nothing when the input is blank', () => {
+        const { component } = buildComponent();
+        let emitted: string | undefined;
+        component.uploaded.subscribe(url => emitted = url);
+        component.urlInput = '   ';
+
+        component.applyUrl();
+
+        expect(emitted).toBeUndefined();
+    });
 });

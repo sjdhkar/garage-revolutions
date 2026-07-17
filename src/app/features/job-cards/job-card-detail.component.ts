@@ -15,6 +15,7 @@ import { InvoiceService } from '../../core/services/invoice.service';
 import { JobCard, JobStatus, JobCardPart, StatusHistoryEntry } from '../../core/models/app.models';
 import { PaymentMode, PaymentRecord } from '../../core/models/billing.model';
 import { calculatePartsTotal, calculateServicesTotal } from '../../core/utils/billing-calculations';
+import { buildUpiQrUrl } from '../../core/utils/upi-qr';
 import { StatusBadgeComponent } from '../../shared/components/status-badge/status-badge.component';
 import { ToastService } from '../../shared/services/toast.service';
 
@@ -675,10 +676,13 @@ export class JobCardDetailComponent implements OnInit {
   }
 
   getQrUrl(): string {
-    const upiId = this.garageService.garage()?.upiId ?? '';
-    const amount = this.invoice()?.total ?? this.billTotal();
-    const upiString = `upi://pay?pa=${upiId}&pn=RevolutionMotoGarage&am=${amount}&tn=Job:${this.jobId}`;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(upiString)}`;
+    const garage = this.garageService.garage();
+    return buildUpiQrUrl({
+      upiId: garage?.upiId ?? '',
+      payeeName: garage?.name || 'Garage',
+      amount: this.invoice()?.total ?? this.billTotal(),
+      note: `Job:${this.jobId}`,
+    });
   }
 
   printJob() {

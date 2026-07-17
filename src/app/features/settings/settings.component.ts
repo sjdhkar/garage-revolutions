@@ -7,6 +7,7 @@ import { AuthService } from '../../core/services/auth.service';
 import { Garage } from '../../core/models/garage.model';
 import { ToastService } from '../../shared/services/toast.service';
 import { ImageUploadComponent } from '../../shared/components/image-upload/image-upload.component';
+import { buildUpiQrUrl } from '../../core/utils/upi-qr';
 
 @Component({
     selector: 'app-settings',
@@ -108,8 +109,15 @@ import { ImageUploadComponent } from '../../shared/components/image-upload/image
               (uploaded)="canEdit() && (form.invoiceLogoUrl = $event)"></app-image-upload>
           </div>
           <div class="col-md-6">
-            <app-image-upload label="UPI QR Code" [currentUrl]="form.upiQrImageUrl" storagePathPrefix="garages/main/branding/upi-qr"
-              (uploaded)="canEdit() && (form.upiQrImageUrl = $event)"></app-image-upload>
+            <label class="form-label">UPI Payment QR</label>
+            @if (qrPreviewUrl()) {
+              <div>
+                <img [src]="qrPreviewUrl()" alt="UPI payment QR" style="width: 100px; height: 100px;">
+                <div class="text-muted small">Generated automatically from your UPI ID above — nothing to upload.</div>
+              </div>
+            } @else {
+              <div class="text-muted small">Enter a UPI ID above to generate your payment QR.</div>
+            }
           </div>
         </div>
       </div>
@@ -135,6 +143,12 @@ export class SettingsComponent {
     form: Partial<Garage> = {};
     saving = false;
     private formLoaded = false;
+
+    /** Generated live from the UPI ID/name currently in the form — no upload, no Storage. */
+    qrPreviewUrl(): string | null {
+        if (!this.form.upiId) return null;
+        return buildUpiQrUrl({ upiId: this.form.upiId, payeeName: this.form.name || 'Garage' });
+    }
 
     constructor() {
         // The garage doc loads asynchronously via GarageService's onSnapshot
@@ -168,7 +182,6 @@ export class SettingsComponent {
             if (this.form.logoUrl) updates.logoUrl = this.form.logoUrl;
             if (this.form.coverImageUrl) updates.coverImageUrl = this.form.coverImageUrl;
             if (this.form.invoiceLogoUrl) updates.invoiceLogoUrl = this.form.invoiceLogoUrl;
-            if (this.form.upiQrImageUrl) updates.upiQrImageUrl = this.form.upiQrImageUrl;
             if (this.form.primaryColor) updates.primaryColor = this.form.primaryColor;
             if (this.form.secondaryColor) updates.secondaryColor = this.form.secondaryColor;
             await this.garageService.updateGarage(updates);

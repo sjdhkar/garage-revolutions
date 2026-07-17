@@ -1,12 +1,13 @@
 import { Component, Input, Output, EventEmitter, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { StorageService } from '../../../core/services/storage.service';
 import { ToastService } from '../../services/toast.service';
 
 @Component({
     selector: 'app-image-upload',
     standalone: true,
-    imports: [CommonModule],
+    imports: [CommonModule, FormsModule],
     template: `
     <div class="image-upload">
       <label class="form-label">{{ label }}</label>
@@ -26,6 +27,10 @@ import { ToastService } from '../../services/toast.service';
           }
         </div>
       </div>
+      <div class="mt-2">
+        <input type="text" class="form-control form-control-sm" placeholder="...or paste an image URL instead (no upload needed)"
+          [ngModel]="urlInput" (ngModelChange)="urlInput = $event" (blur)="applyUrl()" (keyup.enter)="applyUrl()">
+      </div>
     </div>
   `,
     styles: [`
@@ -43,6 +48,7 @@ export class ImageUploadComponent {
     private toastService = inject(ToastService);
 
     uploading = signal(false);
+    urlInput = '';
 
     async onFileSelected(event: Event) {
         const input = event.target as HTMLInputElement;
@@ -56,10 +62,18 @@ export class ImageUploadComponent {
             const url = await this.storageService.uploadFile(path, file);
             this.uploaded.emit(url);
         } catch {
-            this.toastService.error('Could not upload the image. Please try again.');
+            this.toastService.error('Could not upload the image. Please try again — or paste an image URL below instead, which needs no upload.');
         } finally {
             this.uploading.set(false);
         }
+    }
+
+    /** Lets this component work with zero Storage dependency — paste any already-hosted image link. */
+    applyUrl() {
+        const url = this.urlInput.trim();
+        if (!url) return;
+        this.uploaded.emit(url);
+        this.urlInput = '';
     }
 
     remove() {

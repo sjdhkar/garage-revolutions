@@ -6,6 +6,7 @@ import { GarageService } from '../../core/services/garage.service';
 import { Garage } from '../../core/models/garage.model';
 import { ToastService } from '../../shared/services/toast.service';
 import { ImageUploadComponent } from '../../shared/components/image-upload/image-upload.component';
+import { buildUpiQrUrl } from '../../core/utils/upi-qr';
 
 const TOTAL_STEPS = 6;
 
@@ -33,7 +34,7 @@ const TOTAL_STEPS = 6;
             }
             @case (2) {
               <h5>Logo</h5>
-              <p class="text-muted small">Upload your garage logo (optional — you can add this later).</p>
+              <p class="text-muted small">Upload a logo, or paste a link to one — optional, you can add this later.</p>
               <app-image-upload label="Logo" [currentUrl]="form.logoUrl" storagePathPrefix="garages/main/branding/logo"
                 (uploaded)="form.logoUrl = $event"></app-image-upload>
             }
@@ -65,10 +66,13 @@ const TOTAL_STEPS = 6;
               </div>
             }
             @case (5) {
-              <h5>UPI QR Code</h5>
-              <p class="text-muted small">Upload a QR code image for customers to scan and pay (optional — you can add this later).</p>
-              <app-image-upload label="UPI QR Code" [currentUrl]="form.upiQrImageUrl" storagePathPrefix="garages/main/branding/upi-qr"
-                (uploaded)="form.upiQrImageUrl = $event"></app-image-upload>
+              <h5>UPI Payment QR</h5>
+              <p class="text-muted small">Generated automatically from your UPI ID — nothing to upload.</p>
+              @if (qrPreviewUrl()) {
+                <img [src]="qrPreviewUrl()" alt="UPI payment QR" style="width: 140px; height: 140px;">
+              } @else {
+                <p class="text-muted small">Go back and enter a UPI ID to see your QR here.</p>
+              }
             }
             @case (6) {
               <h5>All Set!</h5>
@@ -107,6 +111,11 @@ export class SetupWizardComponent {
 
     form: Partial<Garage> = { taxRate: 18 };
 
+    qrPreviewUrl(): string | null {
+        if (!this.form.upiId) return null;
+        return buildUpiQrUrl({ upiId: this.form.upiId, payeeName: this.form.name || 'Garage' });
+    }
+
     canProceed(): boolean {
         switch (this.step()) {
             case 1: return !!this.form.name?.trim();
@@ -137,7 +146,6 @@ export class SetupWizardComponent {
             };
             if (this.form.gstNumber) updates.gstNumber = this.form.gstNumber;
             if (this.form.logoUrl) updates.logoUrl = this.form.logoUrl;
-            if (this.form.upiQrImageUrl) updates.upiQrImageUrl = this.form.upiQrImageUrl;
             await this.garageService.updateGarage(updates);
             this.router.navigate(['/dashboard']);
         } catch {
